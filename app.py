@@ -135,20 +135,15 @@ def get_worksheet():
 @st.cache_data(ttl=30)
 def load_data():
     ws   = get_worksheet()
-    # value_render_option="FORMATTED_VALUE" keeps leading zeros as strings
-    data = ws.get_all_records(
-        value_render_option="FORMATTED_VALUE",
-        expected_headers=[]
-    )
-    df = pd.DataFrame(data)
-    df = df.replace("", None)
+    # Get raw string values to preserve leading zeros
+    all_values = ws.get_all_values()
+    if not all_values:
+        return pd.DataFrame()
+    headers = all_values[0]
+    rows    = all_values[1:]
+    df      = pd.DataFrame(rows, columns=headers)
+    df      = df.replace("", None)
     df["QUANTITY"] = pd.to_numeric(df["QUANTITY"], errors="coerce").fillna(0)
-    # Force identifier columns to plain string
-    for col in ["SERIAL NUMBER", "TAGGING NUMBER", "MODEL", "NO"]:
-        if col in df.columns:
-            df[col] = df[col].apply(
-                lambda x: str(int(float(x))) if str(x).replace('.','').isdigit() else str(x)
-            ).replace("None", "").replace("nan", "")
     return df
 
 def reload():
