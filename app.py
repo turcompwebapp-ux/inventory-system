@@ -135,10 +135,20 @@ def get_worksheet():
 @st.cache_data(ttl=30)
 def load_data():
     ws   = get_worksheet()
-    data = ws.get_all_records()
-    df   = pd.DataFrame(data)
-    df   = df.replace("", None)
+    # value_render_option="FORMATTED_VALUE" keeps leading zeros as strings
+    data = ws.get_all_records(
+        value_render_option="FORMATTED_VALUE",
+        expected_headers=[]
+    )
+    df = pd.DataFrame(data)
+    df = df.replace("", None)
     df["QUANTITY"] = pd.to_numeric(df["QUANTITY"], errors="coerce").fillna(0)
+    # Force identifier columns to plain string
+    for col in ["SERIAL NUMBER", "TAGGING NUMBER", "MODEL", "NO"]:
+        if col in df.columns:
+            df[col] = df[col].apply(
+                lambda x: str(int(float(x))) if str(x).replace('.','').isdigit() else str(x)
+            ).replace("None", "").replace("nan", "")
     return df
 
 def reload():
@@ -523,6 +533,7 @@ elif page == "✏️ Management":
                 st.markdown("**Inventory Details**")
                 c1, c2 = st.columns(2)
                 with c1:
+                    e_no = st.number_input("NO", value=int(row.get("NO") or 0), min_value=0)
                     e_cat    = st.text_input("Category",        value=str(row.get("CATEGORY")     or ""))
                     e_type   = st.text_input("Type/Spec",       value=str(row.get("TYPE/SPEC")    or ""))
                     e_brand  = st.text_input("Brand",           value=str(row.get("BRAND")        or ""))
@@ -565,7 +576,7 @@ elif page == "✏️ Management":
 
                 if st.form_submit_button("💾 Save All Changes", type="primary"):
                     updated = [
-                        row.get("NO"), e_cat, e_type, e_brand, e_model,
+                        e_no, e_cat, e_type, e_brand, e_model,
                         e_serial, e_tag, e_desc, e_size, e_watt, e_thick,
                         e_qty, e_uom, e_stor, e_cond,
                         e_dateout, e_dateret, e_req, e_proj,
