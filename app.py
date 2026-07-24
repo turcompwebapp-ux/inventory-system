@@ -99,10 +99,13 @@ SCOPES = [
 ]
 CONDITION_OUT_OPTIONS   = ["GOOD", "DAMAGED (WORKING)"]
 CONDITION_FULL_OPTIONS  = [
-    "GOOD", "DAMAGED", "DAMAGED (NOT WORKING)",
-    "DAMAGED (WORKING)", "LOST", "MINOR ISSUE", "SERVICE DUE"
+    "GOOD", "DAMAGED (WORKING)", "DAMAGED (NOT WORKING)",
+    "UNDER REPAIR", "LOST", "DISPOSED", "SERVICE DUE"
 ]
-STATUS_OPTIONS = ["AVAILABLE", "OUT", "RETURNED", "UNDER MAINTENANCE"]
+RETURN_STATUS_OPTIONS = [
+    "FULLY RETURNED", "PARTIALLY RETURNED", "LOST", "DAMAGED", "OUTSTANDING"
+]
+STATUS_OPTIONS = ["AVAILABLE", "OUT", "RETURNED", "PARTIALLY RETURNED", "UNDER MAINTENANCE", "LOST"]
 COLOR_MAP_COND = {
     "GOOD":                  "#3B6D11",
     "DAMAGED":               "#E24B4A",
@@ -114,11 +117,11 @@ COLOR_MAP_COND = {
 }
 PILL_STYLE = {
     "GOOD":                  ("🟢", "#f0fdf4", "#166534"),
-    "DAMAGED":               ("🔴", "#fef2f2", "#991b1b"),
-    "DAMAGED (NOT WORKING)": ("🔴", "#fef2f2", "#991b1b"),
     "DAMAGED (WORKING)":     ("🟠", "#fff7ed", "#9a3412"),
+    "DAMAGED (NOT WORKING)": ("🔴", "#fef2f2", "#991b1b"),
+    "UNDER REPAIR":          ("🔵", "#eff6ff", "#1e40af"),
     "LOST":                  ("🟣", "#f5f3ff", "#5b21b6"),
-    "MINOR ISSUE":           ("🔵", "#eff6ff", "#1e40af"),
+    "DISPOSED":              ("⚫", "#f1f5f9", "#334155"),
     "SERVICE DUE":           ("⚪", "#f8fafc", "#475569"),
 }
 
@@ -227,6 +230,289 @@ def search_item(df, label="search"):
     """, unsafe_allow_html=True)
 
     return row, row_num
+# ── PDF GENERATORS ────────────────────────────────────────────────────────────
+def generate_issue_pdf(data):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    import io
+
+    buf    = io.BytesIO()
+    doc    = SimpleDocTemplate(buf, pagesize=A4,
+                               topMargin=10*mm, bottomMargin=10*mm,
+                               leftMargin=15*mm, rightMargin=15*mm)
+    styles = getSampleStyleSheet()
+    story  = []
+
+    bold   = ParagraphStyle("bold", parent=styles["Normal"], fontName="Helvetica-Bold")
+    center = ParagraphStyle("center", parent=styles["Normal"], alignment=TA_CENTER)
+    title  = ParagraphStyle("title", parent=styles["Normal"],
+                             fontName="Helvetica-Bold", fontSize=11, alignment=TA_CENTER)
+    small  = ParagraphStyle("small", parent=styles["Normal"], fontSize=8)
+
+    # Header table
+    header_data = [[
+        Paragraph("<b>TURCOMP ENGINEERING SERVICES SDN. BHD.</b>", title),
+        Paragraph("Form No.", small),
+        Paragraph("Rev. No.", small),
+    ],[
+        Paragraph("<b>WAREHOUSE ISSUE FORM</b>", title),
+        Paragraph("Issue Date:", small),
+        Paragraph("Page No.", small),
+    ]]
+    ht = Table(header_data, colWidths=[120*mm, 30*mm, 30*mm])
+    ht.setStyle(TableStyle([
+        ("BOX",        (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID",  (0,0), (-1,-1), 0.5, colors.black),
+        ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [colors.white]),
+    ]))
+    story.append(ht)
+    story.append(Spacer(1, 4*mm))
+
+    # Section A — Requestor Info
+    story.append(Paragraph("<b>A. REQUESTOR INFORMATION</b>", bold))
+    story.append(Spacer(1, 2*mm))
+    req_data = [
+        ["Name", data.get("req_name",""), "Contact No", data.get("req_contact","")],
+        ["Position", data.get("req_position",""), "Department", data.get("req_dept","")],
+        ["Project Name", data.get("req_project",""), "Project / Job No", data.get("req_jobno","")],
+        ["Usage Location", data.get("req_location",""), "", ""],
+        ["Date Requested", data.get("req_date",""), "Required Return Date", data.get("req_retdate","")],
+    ]
+    rt = Table(req_data, colWidths=[35*mm, 65*mm, 40*mm, 40*mm])
+    rt.setStyle(TableStyle([
+        ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTNAME",  (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME",  (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE",  (0,0), (-1,-1), 8),
+        ("VALIGN",    (0,0), (-1,-1), "MIDDLE"),
+        ("SPAN",      (1,3), (3,3)),
+    ]))
+    story.append(rt)
+    story.append(Spacer(1, 4*mm))
+
+    # Section B — Asset Details
+    story.append(Paragraph("<b>B. ASSET ISSUE DETAILS</b>", bold))
+    story.append(Spacer(1, 2*mm))
+
+    asset_header = [["No", "Asset Tag No.", "Description", "Serial No.",
+                      "Qty Issued", "Date Out", "Condition Out", "Status"]]
+    items = data.get("items", [])
+    for i, item in enumerate(items, 1):
+        asset_header.append([
+            str(i),
+            str(item.get("TAGGING NUMBER","") or "-"),
+            str(item.get("DESCRIPTION","") or "-"),
+            str(item.get("SERIAL NUMBER","") or "-"),
+            "1",
+            data.get("date_out",""),
+            data.get("cond_out","GOOD"),
+            "Issued"
+        ])
+    # Add blank rows up to 10
+    while len(asset_header) < 11:
+        asset_header.append(["", "", "", "", "", "", "", ""])
+
+    at = Table(asset_header, colWidths=[10*mm, 30*mm, 45*mm, 30*mm, 15*mm, 22*mm, 18*mm, 10*mm])
+    at.setStyle(TableStyle([
+        ("BOX",         (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID",   (0,0), (-1,-1), 0.5, colors.black),
+        ("BACKGROUND",  (0,0), (-1,0),  colors.HexColor("#1e3a5f")),
+        ("TEXTCOLOR",   (0,0), (-1,0),  colors.white),
+        ("FONTNAME",    (0,0), (-1,0),  "Helvetica-Bold"),
+        ("FONTSIZE",    (0,0), (-1,-1), 7.5),
+        ("ALIGN",       (0,0), (-1,-1), "CENTER"),
+        ("VALIGN",      (0,0), (-1,-1), "MIDDLE"),
+        ("ROWHEIGHT",   (0,1), (-1,-1), 8*mm),
+    ]))
+    story.append(at)
+    story.append(Spacer(1, 6*mm))
+
+    # Section E — Issue Sign-Off
+    story.append(Paragraph("<b>E. ISSUE SIGN-OFF</b>", bold))
+    story.append(Spacer(1, 2*mm))
+    sign_data = [
+        [Paragraph("<b>Prepared by\n(Storekeeper)</b>", small),
+         Paragraph("<b>Checked & approved by\n(Material Controller/Warehouse Coordinator)</b>", small),
+         Paragraph("<b>Received by\n(Requestor/Receiver)</b>", small)],
+        ["Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:"],
+    ]
+    st_table = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
+    st_table.setStyle(TableStyle([
+        ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTSIZE",  (0,0), (-1,-1), 8),
+        ("VALIGN",    (0,0), (-1,-1), "TOP"),
+        ("ROWHEIGHT", (0,1), (-1,1),  25*mm),
+    ]))
+    story.append(st_table)
+    story.append(Spacer(1, 4*mm))
+
+    # Note
+    story.append(Paragraph(
+        "<b>Note:</b> All issued assets remain the property of the Company and must be returned "
+        "in good condition. Any loss or damage must be reported immediately to the Warehouse. "
+        "Lost or damaged assets may be chargeable in accordance with the Company's policy.",
+        small
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_return_pdf(data):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    import io
+
+    buf    = io.BytesIO()
+    doc    = SimpleDocTemplate(buf, pagesize=A4,
+                               topMargin=10*mm, bottomMargin=10*mm,
+                               leftMargin=15*mm, rightMargin=15*mm)
+    styles = getSampleStyleSheet()
+    story  = []
+
+    bold   = ParagraphStyle("bold",   parent=styles["Normal"], fontName="Helvetica-Bold")
+    title  = ParagraphStyle("title",  parent=styles["Normal"],
+                             fontName="Helvetica-Bold", fontSize=11, alignment=TA_CENTER)
+    small  = ParagraphStyle("small",  parent=styles["Normal"], fontSize=8)
+
+    # Header
+    header_data = [[
+        Paragraph("<b>TURCOMP ENGINEERING SERVICES SDN. BHD.</b>", title),
+        Paragraph("Form No.", small),
+        Paragraph("Rev. No.", small),
+    ],[
+        Paragraph("<b>WAREHOUSE RETURN FORM</b>", title),
+        Paragraph("Issue Date:", small),
+        Paragraph("Page No.", small),
+    ]]
+    ht = Table(header_data, colWidths=[120*mm, 30*mm, 30*mm])
+    ht.setStyle(TableStyle([
+        ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("VALIGN",    (0,0), (-1,-1), "MIDDLE"),
+    ]))
+    story.append(ht)
+    story.append(Spacer(1, 4*mm))
+
+    # Requestor info
+    story.append(Paragraph("<b>A. REQUESTOR INFORMATION</b>", bold))
+    story.append(Spacer(1, 2*mm))
+    req_data = [
+        ["Name", data.get("req_name",""), "Project / Job No", data.get("req_jobno","")],
+        ["Project Name", data.get("req_project",""), "Usage Location", data.get("req_location","")],
+        ["Date Out", data.get("date_out",""), "Date Returned", data.get("date_ret","")],
+    ]
+    rt = Table(req_data, colWidths=[35*mm, 65*mm, 40*mm, 40*mm])
+    rt.setStyle(TableStyle([
+        ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTNAME",  (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME",  (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE",  (0,0), (-1,-1), 8),
+        ("VALIGN",    (0,0), (-1,-1), "MIDDLE"),
+    ]))
+    story.append(rt)
+    story.append(Spacer(1, 4*mm))
+
+    # Asset return details
+    story.append(Paragraph("<b>B. ASSET RETURN DETAILS</b>", bold))
+    story.append(Spacer(1, 2*mm))
+    asset_header = [["No", "Asset Tag No.", "Description", "Serial No.",
+                      "Qty Returned", "Condition Out", "Condition Returned", "Status"]]
+    items = data.get("items", [])
+    for i, item in enumerate(items, 1):
+        asset_header.append([
+            str(i),
+            str(item.get("TAGGING NUMBER","") or "-"),
+            str(item.get("DESCRIPTION","") or "-"),
+            str(item.get("SERIAL NUMBER","") or "-"),
+            "1",
+            str(item.get("CONDITION OUT","") or "-"),
+            data.get("cond_ret",""),
+            data.get("ret_status","FULLY RETURNED"),
+        ])
+    while len(asset_header) < 11:
+        asset_header.append(["","","","","","","",""])
+
+    at = Table(asset_header, colWidths=[10*mm, 28*mm, 42*mm, 28*mm, 15*mm, 22*mm, 22*mm, 13*mm])
+    at.setStyle(TableStyle([
+        ("BOX",        (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID",  (0,0), (-1,-1), 0.5, colors.black),
+        ("BACKGROUND", (0,0), (-1,0),  colors.HexColor("#1e3a5f")),
+        ("TEXTCOLOR",  (0,0), (-1,0),  colors.white),
+        ("FONTNAME",   (0,0), (-1,0),  "Helvetica-Bold"),
+        ("FONTSIZE",   (0,0), (-1,-1), 7.5),
+        ("ALIGN",      (0,0), (-1,-1), "CENTER"),
+        ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+        ("ROWHEIGHT",  (0,1), (-1,-1), 8*mm),
+    ]))
+    story.append(at)
+    story.append(Spacer(1, 4*mm))
+
+    # Remarks
+    story.append(Paragraph("<b>C. REMARKS / DISCREPANCIES</b>", bold))
+    rem_table = Table([[data.get("remarks","")]], colWidths=[180*mm])
+    rem_table.setStyle(TableStyle([
+        ("BOX",      (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("MINROWHEIGHT", (0,0), (-1,-1), 20*mm),
+    ]))
+    story.append(rem_table)
+    story.append(Spacer(1, 4*mm))
+
+    # Overall return status
+    story.append(Paragraph("<b>G. OVERALL RETURN STATUS</b>", bold))
+    status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
+    ret_stat = data.get("ret_status","FULLY RETURNED").title()
+    status_row = [f"☑ {s}" if s == ret_stat else f"☐ {s}" for s in status_options]
+    st2 = Table([status_row], colWidths=[36*mm]*5)
+    st2.setStyle(TableStyle([
+        ("BOX",      (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("ALIGN",    (0,0), (-1,-1), "CENTER"),
+    ]))
+    story.append(st2)
+    story.append(Spacer(1, 4*mm))
+
+    # Return sign-off
+    story.append(Paragraph("<b>F. RETURN SIGN-OFF</b>", bold))
+    story.append(Spacer(1, 2*mm))
+    sign_data = [
+        [Paragraph("<b>Returned by\n(Requestor)</b>", small),
+         Paragraph("<b>Received by\n(Storekeeper)</b>", small),
+         Paragraph("<b>Verified by\n(Material Controller/Warehouse Coordinator)</b>", small)],
+        ["Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:"],
+    ]
+    st3 = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
+    st3.setStyle(TableStyle([
+        ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTSIZE",  (0,0), (-1,-1), 8),
+        ("VALIGN",    (0,0), (-1,-1), "TOP"),
+        ("ROWHEIGHT", (0,1), (-1,1),  25*mm),
+    ]))
+    story.append(st3)
+    story.append(Spacer(1, 4*mm))
+
+    story.append(Paragraph(
+        "<b>Note:</b> All issued assets remain the property of the Company and must be returned "
+        "in good condition. Any loss or damage must be reported immediately to the Warehouse.",
+        small
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -464,8 +750,9 @@ elif page == "📋 Ledger & Export":
             return ["background-color:#fff7ed"] * len(row)
         return [""] * len(row)
 
+    display_cols = [c for c in dff.columns if c != "NO"]
     st.dataframe(
-        dff.style.apply(highlight_row, axis=1),
+        dff[display_cols].style.apply(highlight_row, axis=1),
         height=560, width='stretch'
     )
 
@@ -611,44 +898,184 @@ elif page == "✏️ Management":
 elif page == "🔄 Loan Tracker":
     st.markdown("## Loan Tracker")
     ws   = get_worksheet()
-    tab1, tab2, tab3 = st.tabs(["🚚 Issue Item Out", "✅ Return Item", "📋 Currently Out"])
+    tab1, tab2, tab3 = st.tabs([
+        "🚚 Issue Items Out",
+        "✅ Return Item",
+        "📋 Currently Out"
+    ])
 
-    # ── TAB 1: ISSUE OUT ──────────────────────────────────────────────────────
+    # ── TAB 1: BULK ISSUE OUT ─────────────────────────────────────────────────
     with tab1:
-        c_search, c_form = st.columns([1, 1])
-        with c_search:
-            st.markdown("#### Find Item to Issue")
-            row, row_num = search_item(df, label="issue_out")
+        st.markdown("#### Step 1 — Requestor Information")
+        ri1, ri2 = st.columns(2)
+        with ri1:
+            req_name     = st.text_input("Name ✱")
+            req_position = st.text_input("Position")
+            req_project  = st.text_input("Project Name")
+            req_location = st.text_input("Usage Location")
+        with ri2:
+            req_contact  = st.text_input("Contact No")
+            req_dept     = st.text_input("Department")
+            req_jobno    = st.text_input("Project / Job No ✱")
+            req_date     = st.date_input("Date Requested", value=datetime.today())
+            req_retdate  = st.date_input("Required Return Date")
 
-        with c_form:
-            if row is not None:
-                if str(row.get("STATUS","")).upper() == "OUT":
-                    st.warning("⚠️ This item is already OUT on loan.")
-                else:
-                    st.markdown("#### Issue Details")
-                    with st.form("out_form"):
-                        date_out  = st.date_input("Date Out", value=datetime.today())
-                        requestor = st.text_input("Requestor Name ✱")
-                        job_no    = st.text_input("Job No ✱")
-                        project   = st.text_input("Project / Usage")
-                        location  = st.text_input("Location")
-                        cur_co    = str(row.get("ACTUAL CONDITION","GOOD")).upper()
-                        co_idx    = CONDITION_OUT_OPTIONS.index(cur_co) if cur_co in CONDITION_OUT_OPTIONS else 0
-                        cond_out  = st.selectbox("Condition Out", CONDITION_OUT_OPTIONS, index=co_idx)
+        st.markdown("---")
+        st.markdown("#### Step 2 — Select Items to Issue")
 
-                        if st.form_submit_button("🚚 Issue Out", type="primary"):
-                            if not requestor:
-                                st.error("❌ Requestor name is required.")
-                            elif not job_no:
-                                st.error("❌ Job No is required.")
-                            else:
+        # Filter helpers
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            filter_cat = st.selectbox(
+                "Filter by Category",
+                ["All"] + sorted(df["CATEGORY"].dropna().unique().tolist()),
+                key="issue_cat_filter"
+            )
+        with fc2:
+            filter_search = st.text_input("Search Description / Serial / Tagging", key="issue_search")
+
+        available_df = df[df["STATUS"].fillna("").str.upper().isin(["AVAILABLE", ""])]
+        if filter_cat != "All":
+            available_df = available_df[available_df["CATEGORY"] == filter_cat]
+        if filter_search:
+            mask = available_df.apply(
+                lambda r: r.astype(str).str.contains(filter_search, case=False, na=False).any(), axis=1
+            )
+            available_df = available_df[mask]
+
+        if available_df.empty:
+            st.info("No available items matching your filter.")
+        else:
+            st.caption(f"{len(available_df)} available items shown")
+
+            # Build checkbox table
+            show_cols = ["CATEGORY", "TAGGING NUMBER", "DESCRIPTION",
+                        "SERIAL NUMBER", "BRAND", "SIZE", "ACTUAL CONDITION"]
+            show_cols = [c for c in show_cols if c in available_df.columns]
+
+            selected_indices = []
+            header_cols = st.columns([0.3] + [1] * len(show_cols))
+            header_cols[0].markdown("**✓**")
+            for i, col in enumerate(show_cols):
+                header_cols[i+1].markdown(f"**{col}**")
+
+            st.markdown("<hr style='margin:4px 0'>", unsafe_allow_html=True)
+
+            for idx, row_data in available_df.iterrows():
+                row_cols = st.columns([0.3] + [1] * len(show_cols))
+                checked = row_cols[0].checkbox(
+                    "", key=f"chk_{idx}", label_visibility="collapsed"
+                )
+                for i, col in enumerate(show_cols):
+                    val = str(row_data.get(col, "") or "")
+                    row_cols[i+1].caption(val if val not in ["None","nan",""] else "-")
+                if checked:
+                    selected_indices.append(idx)
+
+        st.markdown("---")
+        st.markdown(f"#### Step 3 — Issue Out ({len(selected_indices) if 'selected_indices' in dir() else 0} items selected)")
+
+        if selected_indices:
+            selected_items = df.loc[selected_indices]
+            st.success(f"✅ {len(selected_indices)} item(s) selected")
+
+            # Show summary
+            sum_cols = ["TAGGING NUMBER", "DESCRIPTION", "SERIAL NUMBER"]
+            sum_cols = [c for c in sum_cols if c in selected_items.columns]
+            st.dataframe(selected_items[sum_cols], use_container_width=True)
+
+            ic1, ic2 = st.columns(2)
+            with ic1:
+                date_out = st.date_input("Date Out", value=datetime.today(), key="bulk_date_out")
+            with ic2:
+                cond_out = st.selectbox("Condition Out (applies to all)", CONDITION_OUT_OPTIONS, key="bulk_cond_out")
+
+            col_issue, col_pdf = st.columns(2)
+
+            with col_issue:
+                if st.button("🚚 Issue All Selected Items", type="primary"):
+                    if not req_name:
+                        st.error("❌ Requestor name is required.")
+                    elif not req_jobno:
+                        st.error("❌ Job No is required.")
+                    else:
+                        errors = []
+                        for idx in selected_indices:
+                            row_data = df.loc[idx]
+                            row_num  = idx + 2
+                            try:
                                 ws.update(f"P{row_num}:Y{row_num}", [[
-                                    str(date_out), "", requestor, project,
-                                    location, cond_out, "", job_no,
-                                    "OUT", str(row.get("REMARKS","") or "")
+                                    str(date_out), "",
+                                    req_name, req_project,
+                                    req_location, cond_out,
+                                    "", req_jobno,
+                                    "OUT", str(row_data.get("REMARKS","") or "")
                                 ]])
-                                st.success(f"✅ Issued to **{requestor}** | Job: {job_no} | {date_out}")
-                                reload()
+                            except Exception as e:
+                                errors.append(str(e))
+                        if errors:
+                            st.error(f"Some items failed: {errors}")
+                        else:
+                            st.success(f"✅ {len(selected_indices)} items issued to {req_name} | Job: {req_jobno}")
+                            reload()
+
+            with col_pdf:
+                if st.button("📄 Preview & Download Issue Form PDF"):
+                    if not req_name:
+                        st.error("❌ Fill in requestor name first.")
+                    elif not req_jobno:
+                        st.error("❌ Fill in Job No first.")
+                    elif not selected_indices:
+                        st.error("❌ Select at least one item.")
+                    else:
+                        st.session_state["pdf_preview"] = {
+                            "type": "issue",
+                            "req_name": req_name,
+                            "req_contact": req_contact,
+                            "req_position": req_position,
+                            "req_dept": req_dept,
+                            "req_project": req_project,
+                            "req_jobno": req_jobno,
+                            "req_location": req_location,
+                            "req_date": str(req_date),
+                            "req_retdate": str(req_retdate),
+                            "date_out": str(date_out),
+                            "cond_out": cond_out,
+                            "items": df.loc[selected_indices].to_dict("records")
+                        }
+                        st.rerun()
+
+        # ── PDF PREVIEW MODAL ─────────────────────────────────────────────────
+        if "pdf_preview" in st.session_state and st.session_state["pdf_preview"]:
+            data = st.session_state["pdf_preview"]
+            st.markdown("---")
+            st.markdown("### 📋 Confirm Before Downloading")
+
+            st.markdown(f"""
+            **Requestor:** {data['req_name']} | **Job No:** {data['req_jobno']}
+            **Project:** {data['req_project']} | **Date Out:** {data['date_out']}
+            """)
+
+            st.markdown("**Items to be issued:**")
+            preview_df = pd.DataFrame(data["items"])
+            pcols = ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","ACTUAL CONDITION"]
+            pcols = [c for c in pcols if c in preview_df.columns]
+            st.dataframe(preview_df[pcols], use_container_width=True)
+
+            pc1, pc2 = st.columns(2)
+            with pc1:
+                if st.button("✅ Details Correct — Download PDF", type="primary"):
+                    pdf_bytes = generate_issue_pdf(data)
+                    st.download_button(
+                        label="⬇️ Download Issue Form PDF",
+                        data=pdf_bytes,
+                        file_name=f"Issue_Form_{data['req_name']}_{data['date_out']}.pdf",
+                        mime="application/pdf"
+                    )
+            with pc2:
+                if st.button("❌ Go Back & Correct"):
+                    del st.session_state["pdf_preview"]
+                    st.rerun()
 
     # ── TAB 2: RETURN ─────────────────────────────────────────────────────────
     with tab2:
@@ -659,7 +1086,7 @@ elif page == "🔄 Loan Tracker":
 
         with c_form:
             if row is not None:
-                if str(row.get("STATUS","")).upper() != "OUT":
+                if str(row.get("STATUS","")).upper() not in ["OUT", "PARTIALLY RETURNED"]:
                     st.warning("⚠️ This item is not currently OUT.")
                 else:
                     st.markdown("#### Return Details")
@@ -669,37 +1096,74 @@ elif page == "🔄 Loan Tracker":
                         f"Out since: {row.get('DATE OUT','')}"
                     )
                     with st.form("return_form"):
-                        date_ret = st.date_input("Date Returned", value=datetime.today())
-                        cur_cr   = str(row.get("CONDITION RETURNED","GOOD")).upper()
-                        cr_idx   = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
-                        cond_ret = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
-                        cur_ac   = str(row.get("ACTUAL CONDITION","GOOD")).upper()
-                        ac_idx   = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
-                        new_cond = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx)
-                        remarks  = st.text_input("Remarks", value=str(row.get("REMARKS","") or ""))
+                        date_ret  = st.date_input("Date Returned", value=datetime.today())
+                        ret_status = st.selectbox("Return Status", RETURN_STATUS_OPTIONS)
+                        cur_cr    = str(row.get("CONDITION RETURNED","GOOD")).upper()
+                        cr_idx    = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
+                        cond_ret  = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
+                        cur_ac    = str(row.get("ACTUAL CONDITION","GOOD")).upper()
+                        ac_idx    = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
+                        new_cond  = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx)
+                        remarks   = st.text_input("Remarks", value=str(row.get("REMARKS","") or ""))
 
-                        if st.form_submit_button("✅ Confirm Return", type="primary"):
+                        # Map return status to inventory status
+                        status_map = {
+                            "FULLY RETURNED":     "AVAILABLE",
+                            "PARTIALLY RETURNED": "PARTIALLY RETURNED",
+                            "LOST":               "LOST",
+                            "DAMAGED":            "AVAILABLE",
+                            "OUTSTANDING":        "OUT",
+                        }
+                        new_status = status_map.get(ret_status, "AVAILABLE")
+
+                        rc1, rc2 = st.columns(2)
+                        submit_ret = rc1.form_submit_button("✅ Confirm Return", type="primary")
+                        pdf_ret    = rc2.form_submit_button("📄 Return Form PDF")
+
+                        if submit_ret:
                             ws.update(f"P{row_num}:Y{row_num}", [[
                                 str(row.get("DATE OUT","")), str(date_ret),
                                 row.get("REQUESTOR",""), row.get("PROJECT / USAGE",""),
                                 row.get("LOCATION",""), row.get("CONDITION OUT",""),
                                 cond_ret, row.get("JOB NO",""),
-                                "AVAILABLE", remarks
+                                new_status, remarks
                             ]])
                             ws.update(f"O{row_num}", [[new_cond]])
-                            st.success(f"✅ Returned on {date_ret} | Condition: {cond_ret}")
+                            st.success(f"✅ Returned | Status: {ret_status} | Condition: {cond_ret}")
                             reload()
+
+                        if pdf_ret:
+                            ret_pdf_data = {
+                                "type": "return",
+                                "req_name":    row.get("REQUESTOR",""),
+                                "req_jobno":   row.get("JOB NO",""),
+                                "req_project": row.get("PROJECT / USAGE",""),
+                                "req_location":row.get("LOCATION",""),
+                                "date_out":    str(row.get("DATE OUT","")),
+                                "date_ret":    str(date_ret),
+                                "ret_status":  ret_status,
+                                "cond_ret":    cond_ret,
+                                "remarks":     remarks,
+                                "items": [row.to_dict()]
+                            }
+                            pdf_bytes = generate_return_pdf(ret_pdf_data)
+                            st.download_button(
+                                label="⬇️ Download Return Form PDF",
+                                data=pdf_bytes,
+                                file_name=f"Return_Form_{row.get('REQUESTOR','')}_{date_ret}.pdf",
+                                mime="application/pdf"
+                            )
 
     # ── TAB 3: CURRENTLY OUT ──────────────────────────────────────────────────
     with tab3:
-        out_df = df[df["STATUS"].fillna("").str.upper() == "OUT"]
+        out_df = df[df["STATUS"].fillna("").str.upper().isin(["OUT","PARTIALLY RETURNED"])]
         if out_df.empty:
             st.info("✅ No items currently out on loan.")
         else:
             st.markdown(f"#### {len(out_df)} Items Currently Out")
             show_cols = [c for c in [
-                "SERIAL NUMBER","TAGGING NUMBER","DESCRIPTION","CATEGORY",
+                "TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","CATEGORY",
                 "BRAND","REQUESTOR","JOB NO","DATE OUT",
-                "PROJECT / USAGE","LOCATION","CONDITION OUT"
+                "PROJECT / USAGE","LOCATION","CONDITION OUT","STATUS"
             ] if c in out_df.columns]
             st.dataframe(out_df[show_cols], height=500, width='stretch')
