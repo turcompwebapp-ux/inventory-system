@@ -5,6 +5,8 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+import json
+import uuid
 
 st.set_page_config(
     page_title="TURCOMP Inventory",
@@ -134,6 +136,24 @@ def get_worksheet():
     )
     client = gspread.authorize(creds)
     return client.open("inventorydata").worksheet("inventorydata")
+@st.cache_resource
+def get_approvals_sheet():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=SCOPES
+    )
+    client = gspread.authorize(creds)
+    return client.open("inventorydata").worksheet("approvals")
+
+@st.cache_data(ttl=15)
+def load_approvals():
+    ws   = get_approvals_sheet()
+    data = ws.get_all_records()
+    return pd.DataFrame(data) if data else pd.DataFrame(columns=[
+        "REQUEST_ID","KEYED_BY","DATE_REQUESTED","REQ_NAME","REQ_CONTACT",
+        "REQ_POSITION","REQ_DEPT","REQ_PROJECT","REQ_JOBNO","REQ_LOCATION",
+        "REQ_DATE","REQ_RETDATE","STATUS","APPROVED_BY","ITEMS_JSON"
+    ])
 
 @st.cache_data(ttl=30)
 def load_data():
@@ -530,7 +550,8 @@ with st.sidebar:
         "📊 Dashboard",
         "📋 Ledger & Export",
         "✏️ Management",
-        "🔄 Loan Tracker"
+        "🔄 Loan Tracker",
+        "✅ Approvals"
     ], label_visibility="collapsed")
     st.markdown(f"""
     <div style="position:fixed;bottom:20px;font-size:11px;color:#475569;">
@@ -896,185 +917,209 @@ elif page == "✏️ Management":
 # PAGE 4 — LOAN TRACKER
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "🔄 Loan Tracker":
-    st.markdown("## Loan Tracker")
-    ws   = get_worksheet()
+    st.markdown("## 🔄 Loan Tracker")
+    ws = get_worksheet()
     tab1, tab2, tab3 = st.tabs([
-        "🚚 Issue Items Out",
+        "🛒 Issue Items Out",
         "✅ Return Item",
         "📋 Currently Out"
     ])
 
-    # ── TAB 1: BULK ISSUE OUT ─────────────────────────────────────────────────
+    # ── TAB 1: BASKET ISSUE OUT ───────────────────────────────────────────────
     with tab1:
+        # Init basket
+        if "basket" not in st.session_state:
+            st.session_state.basket = []
+
         st.markdown("#### Step 1 — Requestor Information")
         ri1, ri2 = st.columns(2)
         with ri1:
-            req_name     = st.text_input("Name ✱")
-            req_position = st.text_input("Position")
-            req_project  = st.text_input("Project Name")
-            req_location = st.text_input("Usage Location")
+            req_name     = st.text_input("Name ✱", key="req_name")
+            req_position = st.text_input("Position", key="req_pos")
+            req_project  = st.text_input("Project Name", key="req_proj")
+            req_location = st.text_input("Usage Location", key="req_loc")
         with ri2:
-            req_contact  = st.text_input("Contact No")
-            req_dept     = st.text_input("Department")
-            req_jobno    = st.text_input("Project / Job No ✱")
+            req_contact  = st.text_input("Contact No", key="req_contact")
+            req_dept     = st.text_input("Department", key="req_dept")
+            req_jobno    = st.text_input("Project / Job No ✱", key="req_jobno")
             req_date     = st.date_input("Date Requested", value=datetime.today())
             req_retdate  = st.date_input("Required Return Date")
 
         st.markdown("---")
-        st.markdown("#### Step 2 — Select Items to Issue")
+        st.markdown("#### Step 2 — Search & Add Items to Basket")
+        st.caption("Filter by category and search first, then add items to your basket.")
 
-        # Filter helpers
-        fc1, fc2 = st.columns(2)
-        with fc1:
+        sc1, sc2 = st.columns(2)
+        with sc1:
             filter_cat = st.selectbox(
-                "Filter by Category",
-                ["All"] + sorted(df["CATEGORY"].dropna().unique().tolist()),
-                key="issue_cat_filter"
+                "Filter by Category ✱",
+                ["-- Select Category --"] + sorted(df["CATEGORY"].dropna().unique().tolist()),
+                key="basket_cat"
             )
-        with fc2:
-            filter_search = st.text_input("Search Description / Serial / Tagging", key="issue_search")
-
-        available_df = df[df["STATUS"].fillna("").str.upper().isin(["AVAILABLE", ""])]
-        if filter_cat != "All":
-            available_df = available_df[available_df["CATEGORY"] == filter_cat]
-        if filter_search:
-            mask = available_df.apply(
-                lambda r: r.astype(str).str.contains(filter_search, case=False, na=False).any(), axis=1
+        with sc2:
+            filter_search = st.text_input(
+                "Search Description / Serial / Tagging (optional)",
+                key="basket_search"
             )
-            available_df = available_df[mask]
 
-        if available_df.empty:
-            st.info("No available items matching your filter.")
+        # Only show items when category is selected
+        if filter_cat == "-- Select Category --":
+            st.info("👆 Please select a category above to see available items.")
         else:
-            st.caption(f"{len(available_df)} available items shown")
-
-            # Build checkbox table
-            show_cols = ["CATEGORY", "TAGGING NUMBER", "DESCRIPTION",
-                        "SERIAL NUMBER", "BRAND", "SIZE", "ACTUAL CONDITION"]
-            show_cols = [c for c in show_cols if c in available_df.columns]
-
-            selected_indices = []
-            header_cols = st.columns([0.3] + [1] * len(show_cols))
-            header_cols[0].markdown("**✓**")
-            for i, col in enumerate(show_cols):
-                header_cols[i+1].markdown(f"**{col}**")
-
-            st.markdown("<hr style='margin:4px 0'>", unsafe_allow_html=True)
-
-            for idx, row_data in available_df.iterrows():
-                row_cols = st.columns([0.3] + [1] * len(show_cols))
-                checked = row_cols[0].checkbox(
-                    "", key=f"chk_{idx}", label_visibility="collapsed"
+            filtered = df[
+                (df["CATEGORY"] == filter_cat) &
+                (df["STATUS"].fillna("").str.upper().isin(["AVAILABLE", ""]))
+            ]
+            if filter_search:
+                mask = filtered.apply(
+                    lambda r: r.astype(str).str.contains(
+                        filter_search, case=False, na=False).any(), axis=1
                 )
-                for i, col in enumerate(show_cols):
-                    val = str(row_data.get(col, "") or "")
-                    row_cols[i+1].caption(val if val not in ["None","nan",""] else "-")
-                if checked:
-                    selected_indices.append(idx)
+                filtered = filtered[mask]
+
+            # Remove already-in-basket items
+            basket_keys = [b["_idx"] for b in st.session_state.basket]
+            filtered    = filtered[~filtered.index.isin(basket_keys)]
+
+            if filtered.empty:
+                st.warning("No available items found for this filter.")
+            else:
+                st.caption(f"{len(filtered)} available items")
+                show_cols = [c for c in [
+                    "TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER",
+                    "BRAND","SIZE","ACTUAL CONDITION"
+                ] if c in filtered.columns]
+
+                # Header row
+                hcols = st.columns([0.4] + [1]*len(show_cols) + [0.6])
+                hcols[0].markdown("**Add**")
+                for i, c in enumerate(show_cols):
+                    hcols[i+1].markdown(f"**{c}**")
+
+                st.markdown("<hr style='margin:3px 0'>", unsafe_allow_html=True)
+
+                for idx, row_data in filtered.head(50).iterrows():
+                    rcols = st.columns([0.4] + [1]*len(show_cols) + [0.6])
+                    for i, c in enumerate(show_cols):
+                        val = str(row_data.get(c,"") or "")
+                        rcols[i+1].caption(val if val not in ["None","nan","","-"] else "-")
+                    if rcols[-1].button("➕ Add", key=f"add_{idx}"):
+                        item_dict = row_data.to_dict()
+                        item_dict["_idx"] = idx
+                        st.session_state.basket.append(item_dict)
+                        st.rerun()
+
+                if len(filtered) > 50:
+                    st.caption(f"Showing first 50 of {len(filtered)}. Refine your search to see more.")
 
         st.markdown("---")
-        st.markdown(f"#### Step 3 — Issue Out ({len(selected_indices) if 'selected_indices' in dir() else 0} items selected)")
 
-        if selected_indices:
-            selected_items = df.loc[selected_indices]
-            st.success(f"✅ {len(selected_indices)} item(s) selected")
+        # ── BASKET DISPLAY ────────────────────────────────────────────────────
+        st.markdown(f"#### 🛒 Basket ({len(st.session_state.basket)} items)")
+        if not st.session_state.basket:
+            st.info("Your basket is empty. Add items above.")
+        else:
+            basket_cols = ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE","ACTUAL CONDITION"]
+            basket_df   = pd.DataFrame(st.session_state.basket)
+            disp_cols   = [c for c in basket_cols if c in basket_df.columns]
+            st.dataframe(basket_df[disp_cols], use_container_width=True)
 
-            # Show summary
-            sum_cols = ["TAGGING NUMBER", "DESCRIPTION", "SERIAL NUMBER"]
-            sum_cols = [c for c in sum_cols if c in selected_items.columns]
-            st.dataframe(selected_items[sum_cols], use_container_width=True)
+            # Remove item from basket
+            remove_options = [
+                f"{i+1}. {b.get('DESCRIPTION','')} | {b.get('TAGGING NUMBER','')}"
+                for i, b in enumerate(st.session_state.basket)
+            ]
+            rem_col1, rem_col2 = st.columns([3,1])
+            with rem_col1:
+                to_remove = st.selectbox("Remove an item from basket", ["-- Keep all --"] + remove_options)
+            with rem_col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Remove") and to_remove != "-- Keep all --":
+                    idx_to_remove = remove_options.index(to_remove)
+                    st.session_state.basket.pop(idx_to_remove)
+                    st.rerun()
+
+            if st.button("🗑️ Clear Entire Basket"):
+                st.session_state.basket = []
+                st.rerun()
+
+        st.markdown("---")
+
+        # ── STEP 3: APPROVAL ──────────────────────────────────────────────────
+        if st.session_state.basket:
+            st.markdown("#### Step 3 — Issue Details & Approval")
 
             ic1, ic2 = st.columns(2)
             with ic1:
-                date_out = st.date_input("Date Out", value=datetime.today(), key="bulk_date_out")
+                date_out  = st.date_input("Date Out", value=datetime.today(), key="bulk_date")
+                cond_out  = st.selectbox("Condition Out", CONDITION_OUT_OPTIONS, key="bulk_cond")
+                keyed_by  = st.text_input("Keyed in by ✱", placeholder="Enter your name")
             with ic2:
-                cond_out = st.selectbox("Condition Out (applies to all)", CONDITION_OUT_OPTIONS, key="bulk_cond_out")
+                st.markdown("**Approval Action**")
+                approval_choice = st.radio(
+                    "Choose action",
+                    ["✅ Self-Approve (I am authorised to approve)",
+                     "⏳ Send to Waitlist (needs another person to approve)"],
+                    key="approval_choice"
+                )
+                if "Self-Approve" in approval_choice:
+                    st.success("You will approve this request immediately. PDF can be generated right after.")
+                else:
+                    st.warning("Request will go to the Approval Queue. PDF can only be printed after approval.")
 
-            col_issue, col_pdf = st.columns(2)
+            if st.button("🚀 Submit Request", type="primary"):
+                if not req_name:
+                    st.error("❌ Requestor name is required.")
+                elif not req_jobno:
+                    st.error("❌ Job No is required.")
+                elif not keyed_by:
+                    st.error("❌ Please enter who is keying in this request.")
+                else:
+                    approval_status = "APPROVED" if "Self-Approve" in approval_choice else "PENDING"
+                    approved_by     = keyed_by if "Self-Approve" in approval_choice else ""
+                    request_id      = str(uuid.uuid4())[:8].upper()
+                    items_json      = json.dumps([{
+                        "TAGGING NUMBER":  b.get("TAGGING NUMBER",""),
+                        "DESCRIPTION":     b.get("DESCRIPTION",""),
+                        "SERIAL NUMBER":   b.get("SERIAL NUMBER",""),
+                        "BRAND":           b.get("BRAND",""),
+                        "SIZE":            b.get("SIZE",""),
+                        "ACTUAL CONDITION":b.get("ACTUAL CONDITION",""),
+                        "_idx":            b.get("_idx"),
+                    } for b in st.session_state.basket])
 
-            with col_issue:
-                if st.button("🚚 Issue All Selected Items", type="primary"):
-                    if not req_name:
-                        st.error("❌ Requestor name is required.")
-                    elif not req_jobno:
-                        st.error("❌ Job No is required.")
-                    else:
-                        errors = []
-                        for idx in selected_indices:
-                            row_data = df.loc[idx]
-                            row_num  = idx + 2
+                    # Save to approvals sheet
+                    aws = get_approvals_sheet()
+                    aws.append_row([
+                        request_id, keyed_by,
+                        datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        req_name, req_contact, req_position, req_dept,
+                        req_project, req_jobno, req_location,
+                        str(req_date), str(req_retdate),
+                        approval_status, approved_by, items_json
+                    ])
+
+                    # If approved — mark items OUT immediately
+                    if approval_status == "APPROVED":
+                        for b in st.session_state.basket:
+                            row_num = b["_idx"] + 2
                             try:
                                 ws.update(f"P{row_num}:Y{row_num}", [[
-                                    str(date_out), "",
-                                    req_name, req_project,
-                                    req_location, cond_out,
-                                    "", req_jobno,
-                                    "OUT", str(row_data.get("REMARKS","") or "")
+                                    str(date_out), "", req_name,
+                                    req_project, req_location, cond_out,
+                                    "", req_jobno, "OUT",
+                                    str(b.get("REMARKS","") or "")
                                 ]])
-                            except Exception as e:
-                                errors.append(str(e))
-                        if errors:
-                            st.error(f"Some items failed: {errors}")
-                        else:
-                            st.success(f"✅ {len(selected_indices)} items issued to {req_name} | Job: {req_jobno}")
-                            reload()
+                            except:
+                                pass
 
-            with col_pdf:
-                if st.button("📄 Preview & Download Issue Form PDF"):
-                    if not req_name:
-                        st.error("❌ Fill in requestor name first.")
-                    elif not req_jobno:
-                        st.error("❌ Fill in Job No first.")
-                    elif not selected_indices:
-                        st.error("❌ Select at least one item.")
+                    st.session_state.basket = []
+                    st.cache_data.clear()
+
+                    if approval_status == "APPROVED":
+                        st.success(f"✅ Request **{request_id}** approved by **{keyed_by}**! Items marked OUT. You can now print the PDF from the Approvals page.")
                     else:
-                        st.session_state["pdf_preview"] = {
-                            "type": "issue",
-                            "req_name": req_name,
-                            "req_contact": req_contact,
-                            "req_position": req_position,
-                            "req_dept": req_dept,
-                            "req_project": req_project,
-                            "req_jobno": req_jobno,
-                            "req_location": req_location,
-                            "req_date": str(req_date),
-                            "req_retdate": str(req_retdate),
-                            "date_out": str(date_out),
-                            "cond_out": cond_out,
-                            "items": df.loc[selected_indices].to_dict("records")
-                        }
-                        st.rerun()
-
-        # ── PDF PREVIEW MODAL ─────────────────────────────────────────────────
-        if "pdf_preview" in st.session_state and st.session_state["pdf_preview"]:
-            data = st.session_state["pdf_preview"]
-            st.markdown("---")
-            st.markdown("### 📋 Confirm Before Downloading")
-
-            st.markdown(f"""
-            **Requestor:** {data['req_name']} | **Job No:** {data['req_jobno']}
-            **Project:** {data['req_project']} | **Date Out:** {data['date_out']}
-            """)
-
-            st.markdown("**Items to be issued:**")
-            preview_df = pd.DataFrame(data["items"])
-            pcols = ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","ACTUAL CONDITION"]
-            pcols = [c for c in pcols if c in preview_df.columns]
-            st.dataframe(preview_df[pcols], use_container_width=True)
-
-            pc1, pc2 = st.columns(2)
-            with pc1:
-                if st.button("✅ Details Correct — Download PDF", type="primary"):
-                    pdf_bytes = generate_issue_pdf(data)
-                    st.download_button(
-                        label="⬇️ Download Issue Form PDF",
-                        data=pdf_bytes,
-                        file_name=f"Issue_Form_{data['req_name']}_{data['date_out']}.pdf",
-                        mime="application/pdf"
-                    )
-            with pc2:
-                if st.button("❌ Go Back & Correct"):
-                    del st.session_state["pdf_preview"]
+                        st.warning(f"⏳ Request **{request_id}** sent to waitlist. Waiting for approval before PDF can be printed.")
                     st.rerun()
 
     # ── TAB 2: RETURN ─────────────────────────────────────────────────────────
@@ -1086,7 +1131,7 @@ elif page == "🔄 Loan Tracker":
 
         with c_form:
             if row is not None:
-                if str(row.get("STATUS","")).upper() not in ["OUT", "PARTIALLY RETURNED"]:
+                if str(row.get("STATUS","")).upper() not in ["OUT","PARTIALLY RETURNED"]:
                     st.warning("⚠️ This item is not currently OUT.")
                 else:
                     st.markdown("#### Return Details")
@@ -1096,17 +1141,16 @@ elif page == "🔄 Loan Tracker":
                         f"Out since: {row.get('DATE OUT','')}"
                     )
                     with st.form("return_form"):
-                        date_ret  = st.date_input("Date Returned", value=datetime.today())
+                        date_ret   = st.date_input("Date Returned", value=datetime.today())
                         ret_status = st.selectbox("Return Status", RETURN_STATUS_OPTIONS)
-                        cur_cr    = str(row.get("CONDITION RETURNED","GOOD")).upper()
-                        cr_idx    = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
-                        cond_ret  = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
-                        cur_ac    = str(row.get("ACTUAL CONDITION","GOOD")).upper()
-                        ac_idx    = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
-                        new_cond  = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx)
-                        remarks   = st.text_input("Remarks", value=str(row.get("REMARKS","") or ""))
+                        cur_cr     = str(row.get("CONDITION RETURNED","GOOD")).upper()
+                        cr_idx     = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
+                        cond_ret   = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
+                        cur_ac     = str(row.get("ACTUAL CONDITION","GOOD")).upper()
+                        ac_idx     = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
+                        new_cond   = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx)
+                        remarks    = st.text_input("Remarks", value=str(row.get("REMARKS","") or ""))
 
-                        # Map return status to inventory status
                         status_map = {
                             "FULLY RETURNED":     "AVAILABLE",
                             "PARTIALLY RETURNED": "PARTIALLY RETURNED",
@@ -1133,24 +1177,24 @@ elif page == "🔄 Loan Tracker":
                             reload()
 
                         if pdf_ret:
-                            ret_pdf_data = {
-                                "type": "return",
-                                "req_name":    row.get("REQUESTOR",""),
-                                "req_jobno":   row.get("JOB NO",""),
-                                "req_project": row.get("PROJECT / USAGE",""),
-                                "req_location":row.get("LOCATION",""),
-                                "date_out":    str(row.get("DATE OUT","")),
-                                "date_ret":    str(date_ret),
-                                "ret_status":  ret_status,
-                                "cond_ret":    cond_ret,
-                                "remarks":     remarks,
-                                "items": [row.to_dict()]
+                            ret_data = {
+                                "type":         "return",
+                                "req_name":     row.get("REQUESTOR",""),
+                                "req_jobno":    row.get("JOB NO",""),
+                                "req_project":  row.get("PROJECT / USAGE",""),
+                                "req_location": row.get("LOCATION",""),
+                                "date_out":     str(row.get("DATE OUT","")),
+                                "date_ret":     str(date_ret),
+                                "ret_status":   ret_status,
+                                "cond_ret":     cond_ret,
+                                "remarks":      remarks,
+                                "items":        [row.to_dict()]
                             }
-                            pdf_bytes = generate_return_pdf(ret_pdf_data)
+                            pdf_bytes = generate_return_pdf(ret_data)
                             st.download_button(
-                                label="⬇️ Download Return Form PDF",
+                                "⬇️ Download Return PDF",
                                 data=pdf_bytes,
-                                file_name=f"Return_Form_{row.get('REQUESTOR','')}_{date_ret}.pdf",
+                                file_name=f"Return_{row.get('REQUESTOR','')}_{date_ret}.pdf",
                                 mime="application/pdf"
                             )
 
@@ -1167,3 +1211,151 @@ elif page == "🔄 Loan Tracker":
                 "PROJECT / USAGE","LOCATION","CONDITION OUT","STATUS"
             ] if c in out_df.columns]
             st.dataframe(out_df[show_cols], height=500, width='stretch')
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE 5 — APPROVALS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "✅ Approvals":
+    st.markdown("## ✅ Approvals")
+    aws  = get_approvals_sheet()
+    adf  = load_approvals()
+
+    tab_pending, tab_approved = st.tabs(["⏳ Pending Approval", "✅ Approved Requests"])
+
+    # ── PENDING ───────────────────────────────────────────────────────────────
+    with tab_pending:
+        pending = adf[adf["STATUS"] == "PENDING"] if not adf.empty else pd.DataFrame()
+        if pending.empty:
+            st.success("✅ No requests waiting for approval.")
+        else:
+            st.markdown(f"#### {len(pending)} Request(s) Waiting for Approval")
+            for _, req in pending.iterrows():
+                with st.expander(
+                    f"📋 Request {req['REQUEST_ID']} — {req['REQ_NAME']} | "
+                    f"Job: {req['REQ_JOBNO']} | Keyed by: {req['KEYED_BY']} | "
+                    f"{req['DATE_REQUESTED']}"
+                ):
+                    st.markdown(f"""
+                    **Requestor:** {req['REQ_NAME']} | **Contact:** {req['REQ_CONTACT']}
+                    **Position:** {req['REQ_POSITION']} | **Department:** {req['REQ_DEPT']}
+                    **Project:** {req['REQ_PROJECT']} | **Job No:** {req['REQ_JOBNO']}
+                    **Location:** {req['REQ_LOCATION']}
+                    **Date Requested:** {req['REQ_DATE']} | **Return Date:** {req['REQ_RETDATE']}
+                    """)
+
+                    # Show items
+                    try:
+                        items = json.loads(req["ITEMS_JSON"])
+                        items_df = pd.DataFrame(items)
+                        disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
+                        st.dataframe(items_df[disp], use_container_width=True)
+                    except:
+                        st.warning("Could not load item details.")
+                        items = []
+
+                    approver_name = st.text_input(
+                        "Your name (approver) ✱",
+                        key=f"approver_{req['REQUEST_ID']}"
+                    )
+                    ac1, ac2 = st.columns(2)
+                    with ac1:
+                        if st.button(f"✅ Approve Request {req['REQUEST_ID']}", type="primary",
+                                     key=f"approve_{req['REQUEST_ID']}"):
+                            if not approver_name:
+                                st.error("❌ Please enter your name to approve.")
+                            else:
+                                # Find row in approvals sheet
+                                all_reqs = aws.get_all_values()
+                                for i, r in enumerate(all_reqs):
+                                    if r and r[0] == req["REQUEST_ID"]:
+                                        aws.update(f"M{i+1}", [["APPROVED"]])
+                                        aws.update(f"N{i+1}", [[approver_name]])
+                                        break
+
+                                # Mark items OUT in inventory
+                                ws = get_worksheet()
+                                for item in items:
+                                    idx = item.get("_idx")
+                                    if idx is not None:
+                                        row_num = int(idx) + 2
+                                        try:
+                                            ws.update(f"P{row_num}:Y{row_num}", [[
+                                                req["REQ_DATE"], "",
+                                                req["REQ_NAME"], req["REQ_PROJECT"],
+                                                req["REQ_LOCATION"], "GOOD",
+                                                "", req["REQ_JOBNO"],
+                                                "OUT", ""
+                                            ]])
+                                        except:
+                                            pass
+
+                                st.cache_data.clear()
+                                st.success(f"✅ Approved by {approver_name}! Items marked OUT. PDF now available.")
+                                st.rerun()
+
+                    with ac2:
+                        if st.button(f"❌ Reject Request {req['REQUEST_ID']}",
+                                     key=f"reject_{req['REQUEST_ID']}"):
+                            all_reqs = aws.get_all_values()
+                            for i, r in enumerate(all_reqs):
+                                if r and r[0] == req["REQUEST_ID"]:
+                                    aws.update(f"M{i+1}", [["REJECTED"]])
+                                    break
+                            st.cache_data.clear()
+                            st.warning(f"Request {req['REQUEST_ID']} rejected.")
+                            st.rerun()
+
+    # ── APPROVED ──────────────────────────────────────────────────────────────
+    with tab_approved:
+        approved = adf[adf["STATUS"] == "APPROVED"] if not adf.empty else pd.DataFrame()
+        if approved.empty:
+            st.info("No approved requests yet.")
+        else:
+            st.markdown(f"#### {len(approved)} Approved Request(s)")
+            for _, req in approved.iterrows():
+                with st.expander(
+                    f"✅ Request {req['REQUEST_ID']} — {req['REQ_NAME']} | "
+                    f"Job: {req['REQ_JOBNO']} | Approved by: {req['APPROVED_BY']}"
+                ):
+                    st.markdown(f"""
+                    **Requestor:** {req['REQ_NAME']} | **Job No:** {req['REQ_JOBNO']}
+                    **Project:** {req['REQ_PROJECT']} | **Keyed by:** {req['KEYED_BY']}
+                    **Approved by:** {req['APPROVED_BY']} | **Date:** {req['DATE_REQUESTED']}
+                    """)
+
+                    try:
+                        items = json.loads(req["ITEMS_JSON"])
+                        items_df = pd.DataFrame(items)
+                        disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
+                        st.dataframe(items_df[disp], use_container_width=True)
+                    except:
+                        items = []
+
+                    # PDF download — only available for approved
+                    if st.button(f"📄 Download Issue PDF — {req['REQUEST_ID']}",
+                                 key=f"pdf_{req['REQUEST_ID']}"):
+                        pdf_data = {
+                            "req_name":    req["REQ_NAME"],
+                            "req_contact": req["REQ_CONTACT"],
+                            "req_position":req["REQ_POSITION"],
+                            "req_dept":    req["REQ_DEPT"],
+                            "req_project": req["REQ_PROJECT"],
+                            "req_jobno":   req["REQ_JOBNO"],
+                            "req_location":req["REQ_LOCATION"],
+                            "req_date":    req["REQ_DATE"],
+                            "req_retdate": req["REQ_RETDATE"],
+                            "date_out":    req["REQ_DATE"],
+                            "cond_out":    "GOOD",
+                            "keyed_by":    req["KEYED_BY"],
+                            "approved_by": req["APPROVED_BY"],
+                            "items":       items
+                        }
+                        pdf_bytes = generate_issue_pdf(pdf_data)
+                        st.download_button(
+                            label=f"⬇️ Download Issue Form — {req['REQUEST_ID']}",
+                            data=pdf_bytes,
+                            file_name=f"Issue_{req['REQ_NAME']}_{req['REQUEST_ID']}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_{req['REQUEST_ID']}"
+                        )
