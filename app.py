@@ -154,6 +154,60 @@ def load_approvals():
         "REQ_POSITION","REQ_DEPT","REQ_PROJECT","REQ_JOBNO","REQ_LOCATION",
         "REQ_DATE","REQ_RETDATE","STATUS","APPROVED_BY","ITEMS_JSON"
     ])
+def archive_old_approvals():
+    """Move approved/rejected requests older than 30 days to an archive tab."""
+    try:
+        adf = load_approvals()
+        if adf.empty:
+            return
+        aws = get_approvals_sheet()
+        adf["DATE_REQUESTED"] = pd.to_datetime(
+            adf["DATE_REQUESTED"], errors="coerce"
+        )
+        cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+        old = adf[
+            (adf["STATUS"].isin(["APPROVED","REJECTED"])) &
+            (adf["DATE_REQUESTED"] < cutoff)
+        ]
+        if old.empty:
+            return
+
+        # Try to get or create archive sheet
+        try:
+            archive_ws = get_worksheet().__class__
+            creds = Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"], scopes=SCOPES
+            )
+            client = gspread.authorize(creds)
+            spreadsheet = client.open("inventorydata")
+            try:
+                archive_ws = spreadsheet.worksheet("approvals_archive")
+            except:
+                archive_ws = spreadsheet.add_worksheet(
+                    title="approvals_archive", rows=5000, cols=20
+                )
+                # Add headers
+                aws_headers = aws.row_values(1)
+                archive_ws.append_row(aws_headers)
+
+            # Copy old rows to archive
+            for _, row_data in old.iterrows():
+                archive_ws.append_row(row_data.fillna("").astype(str).tolist())
+
+            # Delete old rows from main approvals sheet (in reverse order)
+            all_vals = aws.get_all_values()
+            rows_to_delete = []
+            for i, r in enumerate(all_vals[1:], start=2):
+                if r and r[0] in old["REQUEST_ID"].values:
+                    rows_to_delete.append(i)
+            for row_idx in reversed(rows_to_delete):
+                aws.delete_rows(row_idx)
+
+            st.cache_data.clear()
+        except Exception as e:
+            pass  # Silently fail — don't block the app
+    except:
+        pass
 
 @st.cache_data(ttl=30)
 def load_data():
@@ -1162,43 +1216,48 @@ elif page == "🔄 Loan Tracker":
                         }
                         new_status = status_map.get(ret_status, "AVAILABLE")
 
-                        rc1, rc2 = st.columns(2)
-                        submit_ret = rc1.form_submit_button("✅ Confirm Return", type="primary")
-                        pdf_ret    = rc2.form_submit_button("📄 Return Form PDF")
+                        submit_ret = st.form_submit_button("✅ Confirm Return", type="primary")
 
                         if submit_ret:
+                            # Clean all values before sending to Google Sheets
+                            def clean(v):
+                                s = str(v) if v is not None else ""
+                                return "" if s in ["nan", "None", "NaN"] else s
+
                             ws.update(f"P{row_num}:Y{row_num}", [[
-                                str(row.get("DATE OUT","")), str(date_ret),
-                                row.get("REQUESTOR",""), row.get("PROJECT / USAGE",""),
-                                row.get("LOCATION",""), row.get("CONDITION OUT",""),
-                                cond_ret, row.get("JOB NO",""),
-                                new_status, remarks
+                                clean(row.get("DATE OUT","")), clean(date_ret),
+                                clean(row.get("REQUESTOR","")), clean(row.get("PROJECT / USAGE","")),
+                                clean(row.get("LOCATION","")), clean(row.get("CONDITION OUT","")),
+                                clean(cond_ret), clean(row.get("JOB NO","")),
+                                clean(new_status), clean(remarks)
                             ]])
-                            ws.update(f"O{row_num}", [[new_cond]])
+                            ws.update(f"O{row_num}", [[clean(new_cond)]])
+                            st.session_state["last_return"] = {
+                                "req_name":    str(row.get("REQUESTOR","") or ""),
+                                "req_jobno":   str(row.get("JOB NO","") or ""),
+                                "req_project": str(row.get("PROJECT / USAGE","") or ""),
+                                "req_location":str(row.get("LOCATION","") or ""),
+                                "date_out":    str(row.get("DATE OUT","") or ""),
+                                "date_ret":    str(date_ret),
+                                "ret_status":  ret_status,
+                                "cond_ret":    cond_ret,
+                                "remarks":     remarks,
+                                "items":       [row.to_dict()]
+                            }
                             st.success(f"✅ Returned | Status: {ret_status} | Condition: {cond_ret}")
                             reload()
 
-                        if pdf_ret:
-                            ret_data = {
-                                "type":         "return",
-                                "req_name":     row.get("REQUESTOR",""),
-                                "req_jobno":    row.get("JOB NO",""),
-                                "req_project":  row.get("PROJECT / USAGE",""),
-                                "req_location": row.get("LOCATION",""),
-                                "date_out":     str(row.get("DATE OUT","")),
-                                "date_ret":     str(date_ret),
-                                "ret_status":   ret_status,
-                                "cond_ret":     cond_ret,
-                                "remarks":      remarks,
-                                "items":        [row.to_dict()]
-                            }
-                            pdf_bytes = generate_return_pdf(ret_data)
-                            st.download_button(
-                                "⬇️ Download Return PDF",
-                                data=pdf_bytes,
-                                file_name=f"Return_{row.get('REQUESTOR','')}_{date_ret}.pdf",
-                                mime="application/pdf"
-                            )
+                    # ── PDF button OUTSIDE the form ───────────────────────────
+                    if "last_return" in st.session_state and st.session_state["last_return"]:
+                        ret_data = st.session_state["last_return"]
+                        pdf_bytes = generate_return_pdf(ret_data)
+                        st.download_button(
+                            "📄 Download Return Form PDF",
+                            data=pdf_bytes,
+                            file_name=f"Return_{ret_data.get('req_name','')}_{ret_data.get('date_ret','')}.pdf",
+                            mime="application/pdf",
+                            key="ret_pdf_dl"
+                        )
 
     # ── TAB 3: CURRENTLY OUT ──────────────────────────────────────────────────
     with tab3:
@@ -1220,6 +1279,7 @@ elif page == "🔄 Loan Tracker":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "✅ Approvals":
     st.markdown("## ✅ Approvals")
+    archive_old_approvals()
     aws  = get_approvals_sheet()
     adf  = load_approvals()
 
