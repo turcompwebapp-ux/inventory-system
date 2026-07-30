@@ -356,11 +356,15 @@ def generate_issue_pdf(data):
     # Section E — Issue Sign-Off
     story.append(Paragraph("<b>E. ISSUE SIGN-OFF</b>", bold))
     story.append(Spacer(1, 2*mm))
+    keyed_by    = data.get("keyed_by", "")
+    approved_by = data.get("approved_by", "")
     sign_data = [
-        [Paragraph("<b>Prepared by\n(Storekeeper)</b>", small),
-         Paragraph("<b>Checked & approved by\n(Material Controller/Warehouse Coordinator)</b>", small),
+        [Paragraph("<b>Keyed in by</b>", small),
+         Paragraph("<b>Approved by</b>", small),
          Paragraph("<b>Received by\n(Requestor/Receiver)</b>", small)],
-        ["Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:"],
+        [f"Name: {keyed_by}\n\nSignature:\n\nDate:",
+         f"Name: {approved_by}\n\nElectronically approved\n\nDate:",
+         "Name:\n\nSignature:\n\nDate:"],
     ]
     st_table = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
     st_table.setStyle(TableStyle([
@@ -791,8 +795,7 @@ elif page == "✏️ Management":
             st.markdown("#### New Item Details")
             c1, c2 = st.columns(2)
             with c1:
-                no          = st.number_input("NO", min_value=1, value=int(df["NO"].max())+1)
-                category    = st.selectbox("Category", [""] + sorted(df["CATEGORY"].dropna().unique().tolist()))
+                category    = st.selectbox("Category",[""] + sorted(df["CATEGORY"].dropna().unique().tolist()))
                 type_spec   = st.text_input("Type/Spec")
                 brand       = st.text_input("Brand")
                 model       = st.text_input("Model")
@@ -818,7 +821,7 @@ elif page == "✏️ Management":
                     st.error(f"❌ Serial Number '{serial}' already exists.")
                 else:
                     ws.append_row([
-                        no, category, type_spec, brand, model,
+                        "", category, type_spec, brand, model,
                         serial, tagging, description, size, watt, thickness,
                         quantity, uom, storage_loc, condition,
                         "", "", "", "", "", "", "", "", "AVAILABLE", remarks
@@ -836,7 +839,6 @@ elif page == "✏️ Management":
                 st.markdown("**Inventory Details**")
                 c1, c2 = st.columns(2)
                 with c1:
-                    e_no = st.number_input("NO", value=int(row.get("NO") or 0), min_value=0)
                     e_cat    = st.text_input("Category",        value=str(row.get("CATEGORY")     or ""))
                     e_type   = st.text_input("Type/Spec",       value=str(row.get("TYPE/SPEC")    or ""))
                     e_brand  = st.text_input("Brand",           value=str(row.get("BRAND")        or ""))
