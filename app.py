@@ -567,15 +567,36 @@ def generate_return_pdf(data):
     # Return sign-off
     story.append(Paragraph("<b>F. RETURN SIGN-OFF</b>", bold))
     story.append(Spacer(1, 2*mm))
-    keyed_by    = data.get("req_name", "")
-    now_str     = datetime.now().strftime("%Y-%m-%d %H:%M")
+    keyed_by = data.get("keyed_by", "")
+    req_name = data.get("req_name", "")
+    now_str  = datetime.now().strftime("%Y-%m-%d %H:%M")
     sign_data = [
         [Paragraph("<b>Returned by (Requestor)</b>", small),
          Paragraph("<b>Received & Verified by</b>", small),
-         Paragraph("<b>Processed by (Storekeeper)</b>", small)],
-        [Paragraph("Name:\n\nSignature:\n\nDate:", small),
-         Paragraph(f"Electronically recorded by: <b>{keyed_by}</b><br/>Date: {now_str}", small),
-         Paragraph("Name:\n\nSignature:\n\nDate:", small)],
+         Paragraph("<b>Processed by</b>", small)],
+        [
+            Paragraph(
+                f"Name: {req_name}"
+                f"<br/><br/><br/><br/>"
+                f"Signature: ________________"
+                f"<br/><br/><br/>"
+                f"Date: ___________",
+                small
+            ),
+            Paragraph(
+                f"Electronically processed by: <b>{keyed_by}</b><br/>"
+                f"Date: {now_str}",
+                small
+            ),
+            Paragraph(
+                "Name: ________________"
+                "<br/><br/><br/><br/>"
+                "Signature: ________________"
+                "<br/><br/><br/>"
+                "Date: ___________",
+                small
+            ),
+        ],
     ]
     st3 = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
     st3.setStyle(TableStyle([
@@ -1284,7 +1305,7 @@ elif page == "🔄 Loan Tracker":
                                     f"Condition: {cond_ret} | Processed by: {keyed_by}"
                                 )
                                 reload()
-                                
+
     # ── TAB 3: CURRENTLY OUT ──────────────────────────────────────────────────
     with tab3:
         out_df = df[df["STATUS"].fillna("").str.upper().isin(["OUT","PARTIALLY RETURNED"])]
