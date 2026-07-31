@@ -412,13 +412,14 @@ def generate_issue_pdf(data):
     story.append(Spacer(1, 2*mm))
     keyed_by    = data.get("keyed_by", "")
     approved_by = data.get("approved_by", "")
+    now_str     = datetime.now().strftime("%Y-%m-%d %H:%M")
     sign_data = [
         [Paragraph("<b>Keyed in by</b>", small),
          Paragraph("<b>Approved by</b>", small),
-         Paragraph("<b>Received by\n(Requestor/Receiver)</b>", small)],
-        [f"Name: {keyed_by}\n\nSignature:\n\nDate:",
-         f"Name: {approved_by}\n\nElectronically approved\n\nDate:",
-         "Name:\n\nSignature:\n\nDate:"],
+         Paragraph("<b>Received by (Requestor/Receiver)</b>", small)],
+        [Paragraph(f"Electronically signed by: <b>{keyed_by}</b><br/>Date: {now_str}", small),
+         Paragraph(f"Electronically approved by: <b>{approved_by}</b><br/>Date: {now_str}", small),
+         Paragraph("Name:\n\nSignature:\n\nDate:", small)],
     ]
     st_table = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
     st_table.setStyle(TableStyle([
@@ -566,11 +567,15 @@ def generate_return_pdf(data):
     # Return sign-off
     story.append(Paragraph("<b>F. RETURN SIGN-OFF</b>", bold))
     story.append(Spacer(1, 2*mm))
+    keyed_by    = data.get("req_name", "")
+    now_str     = datetime.now().strftime("%Y-%m-%d %H:%M")
     sign_data = [
-        [Paragraph("<b>Returned by\n(Requestor)</b>", small),
-         Paragraph("<b>Received by\n(Storekeeper)</b>", small),
-         Paragraph("<b>Verified by\n(Material Controller/Warehouse Coordinator)</b>", small)],
-        ["Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:", "Name:\n\nSignature:\n\nDate:"],
+        [Paragraph("<b>Returned by (Requestor)</b>", small),
+         Paragraph("<b>Received & Verified by</b>", small),
+         Paragraph("<b>Processed by (Storekeeper)</b>", small)],
+        [Paragraph("Name:\n\nSignature:\n\nDate:", small),
+         Paragraph(f"Electronically recorded by: <b>{keyed_by}</b><br/>Date: {now_str}", small),
+         Paragraph("Name:\n\nSignature:\n\nDate:", small)],
     ]
     st3 = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
     st3.setStyle(TableStyle([
@@ -1178,7 +1183,7 @@ elif page == "🔄 Loan Tracker":
                         st.warning(f"⏳ Request **{request_id}** sent to waitlist. Waiting for approval before PDF can be printed.")
                     st.rerun()
 
-    # ── TAB 2: RETURN ─────────────────────────────────────────────────────────
+ # ── TAB 2: RETURN ─────────────────────────────────────────────────────────
     with tab2:
         c_search, c_form = st.columns([1, 1])
         with c_search:
@@ -1191,74 +1196,95 @@ elif page == "🔄 Loan Tracker":
                     st.warning("⚠️ This item is not currently OUT.")
                 else:
                     st.markdown("#### Return Details")
+
+                    # Clean job no display
+                    job_display = str(row.get("JOB NO","") or "")
+                    if job_display in ["nan","None",""]:
+                        job_display = "-"
                     st.info(
                         f"Borrowed by **{row.get('REQUESTOR','')}** | "
-                        f"Job: **{row.get('JOB NO','')}** | "
+                        f"Job: **{job_display}** | "
                         f"Out since: {row.get('DATE OUT','')}"
                     )
-                    with st.form("return_form"):
-                        date_ret   = st.date_input("Date Returned", value=datetime.today())
-                        ret_status = st.selectbox("Return Status", RETURN_STATUS_OPTIONS)
-                        cur_cr     = str(row.get("CONDITION RETURNED","GOOD")).upper()
-                        cr_idx     = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
-                        cond_ret   = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
-                        cur_ac     = str(row.get("ACTUAL CONDITION","GOOD")).upper()
-                        ac_idx     = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
-                        new_cond   = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx)
-                        remarks    = st.text_input("Remarks", value=str(row.get("REMARKS","") or ""))
 
-                        status_map = {
-                            "FULLY RETURNED":     "AVAILABLE",
-                            "PARTIALLY RETURNED": "PARTIALLY RETURNED",
-                            "LOST":               "LOST",
-                            "DAMAGED":            "AVAILABLE",
-                            "OUTSTANDING":        "OUT",
-                        }
-                        new_status = status_map.get(ret_status, "AVAILABLE")
+                    # Fields outside form so PDF can access them
+                    date_ret   = st.date_input("Date Returned", value=datetime.today(), key="ret_date")
+                    ret_status = st.selectbox("Return Status", RETURN_STATUS_OPTIONS, key="ret_status")
+                    cur_cr     = str(row.get("CONDITION RETURNED","GOOD")).upper()
+                    cr_idx     = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
+                    cond_ret   = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx, key="ret_cond")
+                    cur_ac     = str(row.get("ACTUAL CONDITION","GOOD")).upper()
+                    ac_idx     = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
+                    new_cond   = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx, key="ret_new_cond")
+                    raw_rem    = str(row.get("REMARKS","") or "")
+                    if raw_rem in ["nan","None"]:
+                        raw_rem = ""
+                    remarks    = st.text_input("Remarks", value=raw_rem, key="ret_remarks")
+                    keyed_by   = st.text_input("Processed by (your name) ✱", key="ret_keyed_by")
 
-                        submit_ret = st.form_submit_button("✅ Confirm Return", type="primary")
+                    status_map = {
+                        "FULLY RETURNED":     "AVAILABLE",
+                        "PARTIALLY RETURNED": "PARTIALLY RETURNED",
+                        "LOST":               "LOST",
+                        "DAMAGED":            "AVAILABLE",
+                        "OUTSTANDING":        "OUT",
+                    }
+                    new_status = status_map.get(ret_status, "AVAILABLE")
 
-                        if submit_ret:
-                            # Clean all values before sending to Google Sheets
-                            def clean(v):
-                                s = str(v) if v is not None else ""
-                                return "" if s in ["nan", "None", "NaN"] else s
+                    def clean(v):
+                        s = str(v) if v is not None else ""
+                        return "" if s in ["nan","None","NaN","-"] else s
 
-                            ws.update(f"P{row_num}:Y{row_num}", [[
-                                clean(row.get("DATE OUT","")), clean(date_ret),
-                                clean(row.get("REQUESTOR","")), clean(row.get("PROJECT / USAGE","")),
-                                clean(row.get("LOCATION","")), clean(row.get("CONDITION OUT","")),
-                                clean(cond_ret), clean(row.get("JOB NO","")),
-                                clean(new_status), clean(remarks)
-                            ]])
-                            ws.update(f"O{row_num}", [[clean(new_cond)]])
-                            st.session_state["last_return"] = {
-                                "req_name":    str(row.get("REQUESTOR","") or ""),
-                                "req_jobno":   str(row.get("JOB NO","") or ""),
-                                "req_project": str(row.get("PROJECT / USAGE","") or ""),
-                                "req_location":str(row.get("LOCATION","") or ""),
-                                "date_out":    str(row.get("DATE OUT","") or ""),
-                                "date_ret":    str(date_ret),
-                                "ret_status":  ret_status,
-                                "cond_ret":    cond_ret,
-                                "remarks":     remarks,
-                                "items":       [row.to_dict()]
-                            }
-                            st.success(f"✅ Returned | Status: {ret_status} | Condition: {cond_ret}")
-                            reload()
+                    # Build PDF data from current form values
+                    ret_pdf_data = {
+                        "req_name":     clean(row.get("REQUESTOR","")),
+                        "req_jobno":    clean(row.get("JOB NO","")),
+                        "req_project":  clean(row.get("PROJECT / USAGE","")),
+                        "req_location": clean(row.get("LOCATION","")),
+                        "date_out":     clean(row.get("DATE OUT","")),
+                        "date_ret":     str(date_ret),
+                        "ret_status":   ret_status,
+                        "cond_ret":     cond_ret,
+                        "remarks":      remarks,
+                        "keyed_by":     keyed_by,
+                        "items":        [row.to_dict()]
+                    }
 
-                    # ── PDF button OUTSIDE the form ───────────────────────────
-                    if "last_return" in st.session_state and st.session_state["last_return"]:
-                        ret_data = st.session_state["last_return"]
-                        pdf_bytes = generate_return_pdf(ret_data)
+                    st.markdown("---")
+                    b1, b2 = st.columns(2)
+
+                    with b1:
+                        # Generate PDF inline — no form needed
+                        pdf_bytes = generate_return_pdf(ret_pdf_data)
                         st.download_button(
-                            "📄 Download Return Form PDF",
+                            "📄 Preview & Download Return PDF",
                             data=pdf_bytes,
-                            file_name=f"Return_{ret_data.get('req_name','')}_{ret_data.get('date_ret','')}.pdf",
+                            file_name=f"Return_{clean(row.get('REQUESTOR',''))}_{date_ret}.pdf",
                             mime="application/pdf",
-                            key="ret_pdf_dl"
+                            key="ret_pdf_now"
                         )
 
+                    with b2:
+                        if st.button("✅ Confirm Return", type="primary", key="confirm_ret_btn"):
+                            if not keyed_by:
+                                st.error("❌ Please enter who is processing this return.")
+                            else:
+                                ws.update(f"P{row_num}:Y{row_num}", [[
+                                    clean(row.get("DATE OUT","")), str(date_ret),
+                                    clean(row.get("REQUESTOR","")),
+                                    clean(row.get("PROJECT / USAGE","")),
+                                    clean(row.get("LOCATION","")),
+                                    clean(row.get("CONDITION OUT","")),
+                                    cond_ret, clean(row.get("JOB NO","")),
+                                    new_status, remarks
+                                ]])
+                                ws.update(f"O{row_num}", [[new_cond]])
+                                st.success(
+                                    f"✅ Returned | Status: {ret_status} | "
+                                    f"Condition: {cond_ret} | Processed by: {keyed_by}"
+                                )
+                                reload()
+                                
     # ── TAB 3: CURRENTLY OUT ──────────────────────────────────────────────────
     with tab3:
         out_df = df[df["STATUS"].fillna("").str.upper().isin(["OUT","PARTIALLY RETURNED"])]
