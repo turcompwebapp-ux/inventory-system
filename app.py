@@ -875,7 +875,14 @@ elif page == "✏️ Management":
             st.markdown("#### New Item Details")
             c1, c2 = st.columns(2)
             with c1:
-                category    = st.selectbox("Category",[""] + sorted(df["CATEGORY"].dropna().unique().tolist()))
+                existing_cats = sorted(df["CATEGORY"].dropna().unique().tolist())
+                cat_choice = st.selectbox("Category", ["-- Select --"] + existing_cats + ["+ Add New Category"])
+                if cat_choice == "+ Add New Category":
+                    category = st.text_input("Type New Category Name")
+                elif cat_choice == "-- Select --":
+                    category = ""
+                else:
+                    category = cat_choice
                 type_spec   = st.text_input("Type/Spec")
                 brand       = st.text_input("Brand")
                 model       = st.text_input("Model")
@@ -900,13 +907,15 @@ elif page == "✏️ Management":
                 elif serial and serial in df["SERIAL NUMBER"].fillna("").astype(str).values:
                     st.error(f"❌ Serial Number '{serial}' already exists.")
                 else:
-                    ws.append_row([
+                    next_row = len(df) + 2  # +2 because row 1 is headers
+                    new_data = [
                         "", category, type_spec, brand, model,
                         serial, tagging, description, size, watt, thickness,
                         quantity, uom, storage_loc, condition,
                         "", "", "", "", "", "", "", "", "AVAILABLE", remarks
-                    ])
-                    st.success(f"✅ Item added at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                    ]
+                    ws.update(f"A{next_row}:Y{next_row}", [new_data])
+                    st.success(f"✅ Item '{description}' added successfully at row {next_row}! ({datetime.now().strftime('%Y-%m-%d %H:%M')})")
                     reload()
 
     # ── TAB 2: EDIT ─────────────────────────────────────────────────────────────
@@ -919,7 +928,15 @@ elif page == "✏️ Management":
                 st.markdown("**Inventory Details**")
                 c1, c2 = st.columns(2)
                 with c1:
-                    e_cat    = st.text_input("Category",        value=str(row.get("CATEGORY")     or ""))
+                    existing_cats_edit = sorted(df["CATEGORY"].dropna().unique().tolist())
+                    current_cat = str(row.get("CATEGORY") or "")
+                    cat_options = existing_cats_edit + ["+ Add New Category"]
+                    cat_idx = cat_options.index(current_cat) if current_cat in cat_options else 0
+                    e_cat_choice = st.selectbox("Category", cat_options, index=cat_idx)
+                    if e_cat_choice == "+ Add New Category":
+                        e_cat = st.text_input("Type New Category Name", value="")
+                    else:
+                        e_cat = e_cat_choice
                     e_type   = st.text_input("Type/Spec",       value=str(row.get("TYPE/SPEC")    or ""))
                     e_brand  = st.text_input("Brand",           value=str(row.get("BRAND")        or ""))
                     e_model  = st.text_input("Model",           value=str(row.get("MODEL")        or ""))
@@ -961,14 +978,14 @@ elif page == "✏️ Management":
 
                 if st.form_submit_button("💾 Save All Changes", type="primary"):
                     updated = [
-                        e_no, e_cat, e_type, e_brand, e_model,
+                        "", e_cat, e_type, e_brand, e_model,
                         e_serial, e_tag, e_desc, e_size, e_watt, e_thick,
                         e_qty, e_uom, e_stor, e_cond,
                         e_dateout, e_dateret, e_req, e_proj,
                         e_loc, e_co, e_cr, e_jobno, e_status, e_rem
                     ]
                     ws.update(f"A{row_num}:Y{row_num}", [updated])
-                    st.success(f"✅ Saved at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    st.success(f"✅ Item '{e_desc}' has been updated successfully! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
                     reload()
 
     # ── TAB 3: DELETE ─────────────────────────────────────────────────────────
@@ -992,7 +1009,7 @@ elif page == "✏️ Management":
             if confirm:
                 if st.button("🗑️ Permanently Delete This Item", type="primary"):
                     ws.delete_rows(row_num)
-                    st.success("✅ Item deleted successfully.")
+                    st.success(f"✅ Item '{row.get('DESCRIPTION','')}' has been permanently deleted from the system.")
                     reload()
 
 # ══════════════════════════════════════════════════════════════════════════════
