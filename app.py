@@ -962,8 +962,43 @@ elif page == "✏️ Management":
                     cur_stat = str(row.get("STATUS","AVAILABLE")).upper()
                     st._idx  = STATUS_OPTIONS.index(cur_stat) if cur_stat in STATUS_OPTIONS else 0
                     e_status = st.selectbox("Status", STATUS_OPTIONS, index=st._idx)
-                    e_dateout= st.text_input("Date Out",       value=str(row.get("DATE OUT")      or ""))
-                    e_dateret= st.text_input("Date Returned",  value=str(row.get("DATE RETURNED") or ""))
+                    from datetime import datetime as dt
+
+                    def parse_date_safe(val):
+                        """Try to parse existing date string, return None if empty/invalid"""
+                        val = str(val or "").strip()
+                        if not val or val in ["nan", "None"]:
+                            return None
+                        for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y"]:
+                            try:
+                                return dt.strptime(val, fmt).date()
+                            except:
+                                continue
+                        return None
+
+                    date_out_has_value = st.checkbox(
+                        "Set Date Out", value=parse_date_safe(row.get("DATE OUT")) is not None
+                    )
+                    if date_out_has_value:
+                        e_dateout_val = st.date_input(
+                            "Date Out",
+                            value=parse_date_safe(row.get("DATE OUT")) or dt.today().date()
+                        )
+                        e_dateout = str(e_dateout_val)
+                    else:
+                        e_dateout = ""
+
+                    date_ret_has_value = st.checkbox(
+                        "Set Date Returned", value=parse_date_safe(row.get("DATE RETURNED")) is not None
+                    )
+                    if date_ret_has_value:
+                        e_dateret_val = st.date_input(
+                            "Date Returned",
+                            value=parse_date_safe(row.get("DATE RETURNED")) or dt.today().date()
+                        )
+                        e_dateret = str(e_dateret_val)
+                    else:
+                        e_dateret = ""
                     e_jobno  = st.text_input("Job No",         value=str(row.get("JOB NO")        or ""))
                 with a2:
                     e_req    = st.text_input("Requestor",      value=str(row.get("REQUESTOR")     or ""))
