@@ -937,17 +937,18 @@ elif page == "✏️ Management":
                         continue
                 return None
 
-            # These checkboxes are OUTSIDE the form so they respond instantly
-            st.markdown("**Date Settings** (tick to set a date, untick to leave blank)")
+            st.caption("💡 Tip: Date Out is only needed when Status = OUT. Date Returned is only needed after it comes back. Leave the checkbox unticked to keep a date empty.")
             dc1, dc2 = st.columns(2)
             with dc1:
                 date_out_has_value = st.checkbox(
-                    "Set Date Out", value=parse_date_safe(row.get("DATE OUT")) is not None,
+                    "This item has a Date Out (e.g. Status is OUT or was borrowed before)",
+                    value=parse_date_safe(row.get("DATE OUT")) is not None,
                     key="chk_date_out"
                 )
             with dc2:
                 date_ret_has_value = st.checkbox(
-                    "Set Date Returned", value=parse_date_safe(row.get("DATE RETURNED")) is not None,
+                    "This item has a Date Returned (e.g. it has already come back)",
+                    value=parse_date_safe(row.get("DATE RETURNED")) is not None,
                     key="chk_date_ret"
                 )
 
