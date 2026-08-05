@@ -924,6 +924,33 @@ elif page == "✏️ Management":
         row, row_num = search_item(df, label="edit")
 
         if row is not None:
+            from datetime import datetime as dt
+
+            def parse_date_safe(val):
+                val = str(val or "").strip()
+                if not val or val in ["nan", "None"]:
+                    return None
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y"]:
+                    try:
+                        return dt.strptime(val, fmt).date()
+                    except:
+                        continue
+                return None
+
+            # These checkboxes are OUTSIDE the form so they respond instantly
+            st.markdown("**Date Settings** (tick to set a date, untick to leave blank)")
+            dc1, dc2 = st.columns(2)
+            with dc1:
+                date_out_has_value = st.checkbox(
+                    "Set Date Out", value=parse_date_safe(row.get("DATE OUT")) is not None,
+                    key="chk_date_out"
+                )
+            with dc2:
+                date_ret_has_value = st.checkbox(
+                    "Set Date Returned", value=parse_date_safe(row.get("DATE RETURNED")) is not None,
+                    key="chk_date_ret"
+                )
+
             with st.form("edit_form"):
                 st.markdown("**Inventory Details**")
                 c1, c2 = st.columns(2)
@@ -976,9 +1003,6 @@ elif page == "✏️ Management":
                                 continue
                         return None
 
-                    date_out_has_value = st.checkbox(
-                        "Set Date Out", value=parse_date_safe(row.get("DATE OUT")) is not None
-                    )
                     if date_out_has_value:
                         e_dateout_val = st.date_input(
                             "Date Out",
@@ -986,11 +1010,9 @@ elif page == "✏️ Management":
                         )
                         e_dateout = str(e_dateout_val)
                     else:
+                        st.caption("Date Out: (not set)")
                         e_dateout = ""
 
-                    date_ret_has_value = st.checkbox(
-                        "Set Date Returned", value=parse_date_safe(row.get("DATE RETURNED")) is not None
-                    )
                     if date_ret_has_value:
                         e_dateret_val = st.date_input(
                             "Date Returned",
@@ -998,6 +1020,7 @@ elif page == "✏️ Management":
                         )
                         e_dateret = str(e_dateret_val)
                     else:
+                        st.caption("Date Returned: (not set)")
                         e_dateret = ""
                     e_jobno  = st.text_input("Job No",         value=str(row.get("JOB NO")        or ""))
                 with a2:
@@ -1012,16 +1035,19 @@ elif page == "✏️ Management":
                     e_cr     = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
 
                 if st.form_submit_button("💾 Save All Changes", type="primary"):
-                    updated = [
-                        "", e_cat, e_type, e_brand, e_model,
-                        e_serial, e_tag, e_desc, e_size, e_watt, e_thick,
-                        e_qty, e_uom, e_stor, e_cond,
-                        e_dateout, e_dateret, e_req, e_proj,
-                        e_loc, e_co, e_cr, e_jobno, e_status, e_rem
-                    ]
-                    ws.update(f"A{row_num}:Y{row_num}", [updated])
-                    st.success(f"✅ Item '{e_desc}' has been updated successfully! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
-                    reload()
+                    try:
+                        updated = [
+                            "", e_cat, e_type, e_brand, e_model,
+                            e_serial, e_tag, e_desc, e_size, e_watt, e_thick,
+                            e_qty, e_uom, e_stor, e_cond,
+                            e_dateout, e_dateret, e_req, e_proj,
+                            e_loc, e_co, e_cr, e_jobno, e_status, e_rem
+                        ]
+                        ws.update(f"A{row_num}:Y{row_num}", [updated])
+                        st.success(f"✅ Item '{e_desc}' has been updated successfully! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+                        reload()
+                    except Exception as e:
+                        st.error(f"❌ Failed to save changes. Error: {str(e)}")
 
     # ── TAB 3: DELETE ─────────────────────────────────────────────────────────
     with tab3:
