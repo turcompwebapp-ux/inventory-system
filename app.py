@@ -419,7 +419,14 @@ def generate_issue_pdf(data):
          Paragraph("<b>Received by (Requestor/Receiver)</b>", small)],
         [Paragraph(f"Electronically signed by: <b>{keyed_by}</b><br/>Date: {now_str}", small),
          Paragraph(f"Electronically approved by: <b>{approved_by}</b><br/>Date: {now_str}", small),
-         Paragraph("Name:\n\nSignature:\n\nDate:", small)],
+         Paragraph(
+             "Name: ________________"
+             "<br/><br/><br/><br/>"
+             "Signature: ________________"
+             "<br/><br/><br/>"
+             "Date: ___________",
+             small
+         )],
     ]
     st_table = Table(sign_data, colWidths=[60*mm, 60*mm, 60*mm])
     st_table.setStyle(TableStyle([
@@ -1284,106 +1291,200 @@ elif page == "🔄 Loan Tracker":
                     st.rerun()
 
  # ── TAB 2: RETURN ─────────────────────────────────────────────────────────
+# ── TAB 2: BASKET RETURN ──────────────────────────────────────────────────
     with tab2:
-        c_search, c_form = st.columns([1, 1])
-        with c_search:
-            st.markdown("#### Find Item to Return")
-            row, row_num = search_item(df, label="return")
+        if "return_basket" not in st.session_state:
+            st.session_state.return_basket = []
 
-        with c_form:
-            if row is not None:
-                if str(row.get("STATUS","")).upper() not in ["OUT","PARTIALLY RETURNED"]:
-                    st.warning("⚠️ This item is not currently OUT.")
-                else:
-                    st.markdown("#### Return Details")
+        st.markdown("#### Step 1 — Search & Add Items to Return")
+        st.caption("Search for items currently OUT and add them to your return basket.")
 
-                    # Clean job no display
-                    job_display = str(row.get("JOB NO","") or "")
-                    if job_display in ["nan","None",""]:
-                        job_display = "-"
-                    st.info(
-                        f"Borrowed by **{row.get('REQUESTOR','')}** | "
-                        f"Job: **{job_display}** | "
-                        f"Out since: {row.get('DATE OUT','')}"
-                    )
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            ret_filter_cat = st.selectbox(
+                "Filter by Category",
+                ["All"] + sorted(df["CATEGORY"].dropna().unique().tolist()),
+                key="ret_basket_cat"
+            )
+        with rc2:
+            ret_filter_search = st.text_input(
+                "Search Description / Serial / Tagging / Requestor",
+                key="ret_basket_search"
+            )
 
-                    # Fields outside form so PDF can access them
-                    date_ret   = st.date_input("Date Returned", value=datetime.today(), key="ret_date")
-                    ret_status = st.selectbox("Return Status", RETURN_STATUS_OPTIONS, key="ret_status")
-                    cur_cr     = str(row.get("CONDITION RETURNED","GOOD")).upper()
-                    cr_idx     = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
-                    cond_ret   = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx, key="ret_cond")
-                    cur_ac     = str(row.get("ACTUAL CONDITION","GOOD")).upper()
-                    ac_idx     = CONDITION_FULL_OPTIONS.index(cur_ac) if cur_ac in CONDITION_FULL_OPTIONS else 0
-                    new_cond   = st.selectbox("Update Actual Condition", CONDITION_FULL_OPTIONS, index=ac_idx, key="ret_new_cond")
-                    raw_rem    = str(row.get("REMARKS","") or "")
-                    if raw_rem in ["nan","None"]:
-                        raw_rem = ""
-                    remarks    = st.text_input("Remarks", value=raw_rem, key="ret_remarks")
-                    keyed_by   = st.text_input("Processed by (your name) ✱", key="ret_keyed_by")
+        out_items = df[df["STATUS"].fillna("").str.upper().isin(["OUT","PARTIALLY RETURNED"])]
+        if ret_filter_cat != "All":
+            out_items = out_items[out_items["CATEGORY"] == ret_filter_cat]
+        if ret_filter_search:
+            mask = out_items.apply(
+                lambda r: r.astype(str).str.contains(ret_filter_search, case=False, na=False).any(), axis=1
+            )
+            out_items = out_items[mask]
 
-                    status_map = {
-                        "FULLY RETURNED":     "AVAILABLE",
-                        "PARTIALLY RETURNED": "PARTIALLY RETURNED",
-                        "LOST":               "LOST",
-                        "DAMAGED":            "AVAILABLE",
-                        "OUTSTANDING":        "OUT",
-                    }
-                    new_status = status_map.get(ret_status, "AVAILABLE")
+        ret_basket_keys = [b["_idx"] for b in st.session_state.return_basket]
+        out_items = out_items[~out_items.index.isin(ret_basket_keys)]
 
-                    def clean(v):
-                        s = str(v) if v is not None else ""
-                        return "" if s in ["nan","None","NaN","-"] else s
+        if out_items.empty:
+            st.info("No matching items currently out on loan.")
+        else:
+            st.caption(f"{len(out_items)} items currently out")
+            show_cols = [c for c in [
+                "TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER",
+                "REQUESTOR","JOB NO","DATE OUT"
+            ] if c in out_items.columns]
 
-                    # Build PDF data from current form values
-                    ret_pdf_data = {
-                        "req_name":     clean(row.get("REQUESTOR","")),
-                        "req_jobno":    clean(row.get("JOB NO","")),
-                        "req_project":  clean(row.get("PROJECT / USAGE","")),
-                        "req_location": clean(row.get("LOCATION","")),
-                        "date_out":     clean(row.get("DATE OUT","")),
+            hcols = st.columns([0.4] + [1]*len(show_cols))
+            hcols[0].markdown("**Add**")
+            for i, c in enumerate(show_cols):
+                hcols[i+1].markdown(f"**{c}**")
+            st.markdown("<hr style='margin:3px 0'>", unsafe_allow_html=True)
+
+            for idx, row_data in out_items.head(50).iterrows():
+                rcols = st.columns([0.4] + [1]*len(show_cols))
+                for i, c in enumerate(show_cols):
+                    val = str(row_data.get(c,"") or "")
+                    rcols[i+1].caption(val if val not in ["None","nan","",""] else "-")
+                if rcols[0].button("➕", key=f"ret_add_{idx}"):
+                    item_dict = row_data.to_dict()
+                    item_dict["_idx"] = idx
+                    st.session_state.return_basket.append(item_dict)
+                    st.rerun()
+
+            if len(out_items) > 50:
+                st.caption(f"Showing first 50 of {len(out_items)}. Refine your search to see more.")
+
+        st.markdown("---")
+        st.markdown(f"#### 🛒 Return Basket ({len(st.session_state.return_basket)} items)")
+
+        if not st.session_state.return_basket:
+            st.info("Your return basket is empty. Add items above.")
+        else:
+            basket_cols = ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","REQUESTOR","JOB NO","DATE OUT"]
+            basket_df   = pd.DataFrame(st.session_state.return_basket)
+            disp_cols   = [c for c in basket_cols if c in basket_df.columns]
+            st.dataframe(basket_df[disp_cols], use_container_width=True)
+
+            remove_options = [
+                f"{i+1}. {b.get('DESCRIPTION','')} | {b.get('TAGGING NUMBER','')}"
+                for i, b in enumerate(st.session_state.return_basket)
+            ]
+            rem_col1, rem_col2 = st.columns([3,1])
+            with rem_col1:
+                to_remove = st.selectbox("Remove an item", ["-- Keep all --"] + remove_options, key="ret_remove_sel")
+            with rem_col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🗑️ Remove", key="ret_remove_btn") and to_remove != "-- Keep all --":
+                    idx_to_remove = remove_options.index(to_remove)
+                    st.session_state.return_basket.pop(idx_to_remove)
+                    st.rerun()
+
+            if st.button("🗑️ Clear Entire Return Basket", key="ret_clear_all"):
+                st.session_state.return_basket = []
+                st.rerun()
+
+        st.markdown("---")
+
+        if st.session_state.return_basket:
+            st.markdown("#### Step 2 — Return Details")
+
+            def clean(v):
+                s = str(v) if v is not None else ""
+                return "" if s in ["nan","None","NaN","-"] else s
+
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                date_ret   = st.date_input("Date Returned", value=datetime.today(), key="basket_date_ret")
+                ret_status = st.selectbox("Return Status (applies to all)", RETURN_STATUS_OPTIONS, key="basket_ret_status")
+                keyed_by   = st.text_input("Processed by (your name) ✱", key="basket_keyed_by")
+            with rc2:
+                cond_ret   = st.selectbox("Condition Returned (applies to all)", CONDITION_FULL_OPTIONS, key="basket_cond_ret")
+                new_cond   = st.selectbox("Update Actual Condition (applies to all)", CONDITION_FULL_OPTIONS, key="basket_new_cond")
+                remarks    = st.text_input("Remarks", key="basket_ret_remarks")
+
+            status_map = {
+                "FULLY RETURNED":     "AVAILABLE",
+                "PARTIALLY RETURNED": "PARTIALLY RETURNED",
+                "LOST":               "LOST",
+                "DAMAGED":            "AVAILABLE",
+                "OUTSTANDING":        "OUT",
+            }
+            new_status = status_map.get(ret_status, "AVAILABLE")
+
+            b1, b2 = st.columns(2)
+
+            with b1:
+                if st.button("✅ Confirm Return All Items", type="primary", key="basket_confirm_ret"):
+                    if not keyed_by:
+                        st.error("❌ Please enter who is processing this return.")
+                    else:
+                        for b in st.session_state.return_basket:
+                            row_num = b["_idx"] + 2
+                            try:
+                                ws.update(f"P{row_num}:Y{row_num}", [[
+                                    clean(b.get("DATE OUT","")), str(date_ret),
+                                    clean(b.get("REQUESTOR","")),
+                                    clean(b.get("PROJECT / USAGE","")),
+                                    clean(b.get("LOCATION","")),
+                                    clean(b.get("CONDITION OUT","")),
+                                    cond_ret, clean(b.get("JOB NO","")),
+                                    new_status, remarks
+                                ]])
+                                ws.update(f"O{row_num}", [[new_cond]])
+                            except:
+                                pass
+
+                        st.session_state["last_return_batch"] = {
+                            "keyed_by":   keyed_by,
+                            "date_ret":   str(date_ret),
+                            "ret_status": ret_status,
+                            "cond_ret":   cond_ret,
+                            "remarks":    remarks,
+                            "items":      st.session_state.return_basket.copy()
+                        }
+                        st.session_state.return_basket = []
+                        st.success(f"✅ {len(st.session_state.get('last_return_batch',{}).get('items',[]))} item(s) returned successfully! Processed by: {keyed_by}")
+                        reload()
+
+            with b2:
+                # Build PDF preview using CURRENT basket values (before confirming)
+                if keyed_by:
+                    preview_data = {
+                        "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                        "req_jobno":    clean(st.session_state.return_basket[0].get("JOB NO","")) if st.session_state.return_basket else "",
+                        "req_project":  clean(st.session_state.return_basket[0].get("PROJECT / USAGE","")) if st.session_state.return_basket else "",
+                        "req_location": clean(st.session_state.return_basket[0].get("LOCATION","")) if st.session_state.return_basket else "",
+                        "date_out":     clean(st.session_state.return_basket[0].get("DATE OUT","")) if st.session_state.return_basket else "",
                         "date_ret":     str(date_ret),
                         "ret_status":   ret_status,
                         "cond_ret":     cond_ret,
                         "remarks":      remarks,
                         "keyed_by":     keyed_by,
-                        "items":        [row.to_dict()]
+                        "items":        st.session_state.return_basket
                     }
+                    pdf_bytes = generate_return_pdf(preview_data)
+                    st.download_button(
+                        "📄 Download Return PDF",
+                        data=pdf_bytes,
+                        file_name=f"Return_{keyed_by}_{date_ret}.pdf",
+                        mime="application/pdf",
+                        key="basket_ret_pdf"
+                    )
+                else:
+                    st.caption("Enter your name above to enable PDF download.")
 
-                    st.markdown("---")
-                    b1, b2 = st.columns(2)
-
-                    with b1:
-                        # Generate PDF inline — no form needed
-                        pdf_bytes = generate_return_pdf(ret_pdf_data)
-                        st.download_button(
-                            "📄 Preview & Download Return PDF",
-                            data=pdf_bytes,
-                            file_name=f"Return_{clean(row.get('REQUESTOR',''))}_{date_ret}.pdf",
-                            mime="application/pdf",
-                            key="ret_pdf_now"
-                        )
-
-                    with b2:
-                        if st.button("✅ Confirm Return", type="primary", key="confirm_ret_btn"):
-                            if not keyed_by:
-                                st.error("❌ Please enter who is processing this return.")
-                            else:
-                                ws.update(f"P{row_num}:Y{row_num}", [[
-                                    clean(row.get("DATE OUT","")), str(date_ret),
-                                    clean(row.get("REQUESTOR","")),
-                                    clean(row.get("PROJECT / USAGE","")),
-                                    clean(row.get("LOCATION","")),
-                                    clean(row.get("CONDITION OUT","")),
-                                    cond_ret, clean(row.get("JOB NO","")),
-                                    new_status, remarks
-                                ]])
-                                ws.update(f"O{row_num}", [[new_cond]])
-                                st.success(
-                                    f"✅ Returned | Status: {ret_status} | "
-                                    f"Condition: {cond_ret} | Processed by: {keyed_by}"
-                                )
-                                reload()
+        # Show last confirmed batch PDF if just returned
+        if "last_return_batch" in st.session_state and st.session_state["last_return_batch"]:
+            batch = st.session_state["last_return_batch"]
+            st.markdown("---")
+            st.markdown("#### ✅ Last Return Completed")
+            pdf_bytes = generate_return_pdf(batch)
+            st.download_button(
+                "📄 Download Return Form PDF (Last Batch)",
+                data=pdf_bytes,
+                file_name=f"Return_{batch.get('keyed_by','')}_{batch.get('date_ret','')}.pdf",
+                mime="application/pdf",
+                key="last_batch_pdf"
+            )
 
     # ── TAB 3: CURRENTLY OUT ──────────────────────────────────────────────────
     with tab3:
