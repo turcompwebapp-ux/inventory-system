@@ -327,21 +327,34 @@ def generate_issue_pdf(data):
                              fontName="Helvetica-Bold", fontSize=11, alignment=TA_CENTER)
     small  = ParagraphStyle("small", parent=styles["Normal"], fontSize=8)
 
-    # Header table
+    # Header table with logo
+    import os
+    from reportlab.platypus import Image as RLImage
+
+    logo_path = "logo.png"
+    if os.path.exists(logo_path):
+        logo_cell = RLImage(logo_path, width=20*mm, height=20*mm)
+    else:
+        logo_cell = Paragraph("", small)
+
     header_data = [[
+        logo_cell,
         Paragraph("<b>TURCOMP ENGINEERING SERVICES SDN. BHD.</b>", title),
         Paragraph("Form No.", small),
         Paragraph("Rev. No.", small),
     ],[
+        Paragraph("", small),
         Paragraph("<b>WAREHOUSE ISSUE FORM</b>", title),
         Paragraph("Issue Date:", small),
         Paragraph("Page No.", small),
     ]]
-    ht = Table(header_data, colWidths=[120*mm, 30*mm, 30*mm])
+    ht = Table(header_data, colWidths=[22*mm, 98*mm, 30*mm, 30*mm])
     ht.setStyle(TableStyle([
         ("BOX",        (0,0), (-1,-1), 0.5, colors.black),
         ("INNERGRID",  (0,0), (-1,-1), 0.5, colors.black),
         ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+        ("ALIGN",      (0,0), (0,-1), "CENTER"),
+        ("SPAN",       (0,0), (0,1)),
         ("ROWBACKGROUNDS", (0,0), (-1,-1), [colors.white]),
     ]))
     story.append(ht)
@@ -414,8 +427,8 @@ def generate_issue_pdf(data):
     approved_by = data.get("approved_by", "")
     now_str     = datetime.now().strftime("%Y-%m-%d %H:%M")
     sign_data = [
-        [Paragraph("<b>Keyed in by</b>", small),
-         Paragraph("<b>Approved by</b>", small),
+        [Paragraph("<b>Prepared by<br/>(Storekeeper)</b>", small),
+         Paragraph("<b>Checked &amp; approved by<br/>(Material Controller/Warehouse Coordinator)</b>", small),
          Paragraph("<b>Received by (Requestor/Receiver)</b>", small)],
         [Paragraph(f"Electronically signed by: <b>{keyed_by}</b><br/>Date: {now_str}", small),
          Paragraph(f"Electronically approved by: <b>{approved_by}</b><br/>Date: {now_str}", small),
@@ -472,21 +485,34 @@ def generate_return_pdf(data):
                              fontName="Helvetica-Bold", fontSize=11, alignment=TA_CENTER)
     small  = ParagraphStyle("small",  parent=styles["Normal"], fontSize=8)
 
-    # Header
+    # Header with logo
+    import os
+    from reportlab.platypus import Image as RLImage
+
+    logo_path = "logo.png"
+    if os.path.exists(logo_path):
+        logo_cell = RLImage(logo_path, width=20*mm, height=20*mm)
+    else:
+        logo_cell = Paragraph("", small)
+
     header_data = [[
+        logo_cell,
         Paragraph("<b>TURCOMP ENGINEERING SERVICES SDN. BHD.</b>", title),
         Paragraph("Form No.", small),
         Paragraph("Rev. No.", small),
     ],[
+        Paragraph("", small),
         Paragraph("<b>WAREHOUSE RETURN FORM</b>", title),
         Paragraph("Issue Date:", small),
         Paragraph("Page No.", small),
     ]]
-    ht = Table(header_data, colWidths=[120*mm, 30*mm, 30*mm])
+    ht = Table(header_data, colWidths=[22*mm, 98*mm, 30*mm, 30*mm])
     ht.setStyle(TableStyle([
         ("BOX",       (0,0), (-1,-1), 0.5, colors.black),
         ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
         ("VALIGN",    (0,0), (-1,-1), "MIDDLE"),
+        ("ALIGN",     (0,0), (0,-1), "CENTER"),
+        ("SPAN",      (0,0), (0,1)),
     ]))
     story.append(ht)
     story.append(Spacer(1, 4*mm))
@@ -579,8 +605,8 @@ def generate_return_pdf(data):
     now_str  = datetime.now().strftime("%Y-%m-%d %H:%M")
     sign_data = [
         [Paragraph("<b>Returned by (Requestor)</b>", small),
-         Paragraph("<b>Received & Verified by</b>", small),
-         Paragraph("<b>Processed by</b>", small)],
+         Paragraph("<b>Received by<br/>(Storekeeper)</b>", small),
+         Paragraph("<b>Verified by<br/>(Material Controller/Warehouse Coordinator)</b>", small)],
         [
             Paragraph(
                 f"Name: {req_name}"
@@ -591,7 +617,7 @@ def generate_return_pdf(data):
                 small
             ),
             Paragraph(
-                f"Electronically processed by: <b>{keyed_by}</b><br/>"
+                f"Electronically received by: <b>{keyed_by}</b><br/>"
                 f"Date: {now_str}",
                 small
             ),
@@ -623,6 +649,224 @@ def generate_return_pdf(data):
     ))
 
     doc.build(story)
+    return buf.getvalue()
+
+# ── WORD DOCUMENT GENERATORS ──────────────────────────────────────────────────
+def generate_issue_docx(data):
+    from docx import Document
+    from docx.shared import Mm, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_ALIGN_VERTICAL
+    import io, os
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Mm(12)
+        section.bottom_margin = Mm(12)
+        section.left_margin = Mm(15)
+        section.right_margin = Mm(15)
+
+    # Header table with logo
+    ht = doc.add_table(rows=2, cols=3)
+    ht.style = "Table Grid"
+    if os.path.exists("logo.png"):
+        cell_logo = ht.cell(0,0).merge(ht.cell(1,0))
+        p_logo = cell_logo.paragraphs[0]
+        run = p_logo.add_run()
+        run.add_picture("logo.png", width=Mm(18))
+        p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    ht.cell(0,1).text = "TURCOMP ENGINEERING SERVICES SDN. BHD."
+    ht.cell(0,1).paragraphs[0].runs[0].bold = True
+    ht.cell(0,1).paragraphs[0].runs[0].font.size = Pt(13)
+    ht.cell(1,1).text = "WAREHOUSE ISSUE FORM"
+    ht.cell(1,1).paragraphs[0].runs[0].bold = True
+    ht.cell(0,2).text = "Form No.\nRev. No."
+    ht.cell(1,2).text = "Issue Date:\nPage No."
+
+    doc.add_paragraph()
+
+    # Section A
+    hA = doc.add_paragraph()
+    hA.add_run("A. REQUESTOR INFORMATION").bold = True
+
+    tA = doc.add_table(rows=5, cols=4)
+    tA.style = "Table Grid"
+    rows_data = [
+        ("Name", data.get("req_name",""), "Contact No", data.get("req_contact","")),
+        ("Position", data.get("req_position",""), "Department", data.get("req_dept","")),
+        ("Project Name", data.get("req_project",""), "Project / Job No", data.get("req_jobno","")),
+        ("Usage Location", data.get("req_location",""), "", ""),
+        ("Date Requested", data.get("req_date",""), "Required Return Date", data.get("req_retdate","")),
+    ]
+    for i, (a,b,c,d) in enumerate(rows_data):
+        tA.cell(i,0).text = a
+        tA.cell(i,0).paragraphs[0].runs[0].bold = True
+        tA.cell(i,1).text = str(b)
+        tA.cell(i,2).text = c
+        if c: tA.cell(i,2).paragraphs[0].runs[0].bold = True
+        tA.cell(i,3).text = str(d)
+
+    doc.add_paragraph()
+
+    # Section B — items
+    hB = doc.add_paragraph()
+    hB.add_run("B. ASSET ISSUE DETAILS").bold = True
+
+    items = data.get("items", [])
+    tB = doc.add_table(rows=1+max(len(items),1), cols=8)
+    tB.style = "Table Grid"
+    headers = ["No","Asset Tag No.","Description","Serial No.","Qty","Date Out","Condition Out","Status"]
+    for j, hdr in enumerate(headers):
+        c = tB.cell(0,j)
+        c.text = hdr
+        c.paragraphs[0].runs[0].bold = True
+
+    for i, item in enumerate(items, 1):
+        row_cells = [
+            str(i),
+            str(item.get("TAGGING NUMBER","") or "-"),
+            str(item.get("DESCRIPTION","") or "-"),
+            str(item.get("SERIAL NUMBER","") or "-"),
+            "1",
+            data.get("date_out",""),
+            data.get("cond_out","GOOD"),
+            "Issued"
+        ]
+        for j, val in enumerate(row_cells):
+            tB.cell(i,j).text = val
+
+    doc.add_paragraph()
+
+    # Section E — sign-off
+    hE = doc.add_paragraph()
+    hE.add_run("E. ISSUE SIGN-OFF").bold = True
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    tE = doc.add_table(rows=2, cols=3)
+    tE.style = "Table Grid"
+    tE.cell(0,0).text = "Prepared by\n(Storekeeper)"
+    tE.cell(0,1).text = "Checked & approved by\n(Material Controller/Warehouse Coordinator)"
+    tE.cell(0,2).text = "Received by (Requestor/Receiver)"
+    for c in [tE.cell(0,0), tE.cell(0,1), tE.cell(0,2)]:
+        c.paragraphs[0].runs[0].bold = True
+
+    tE.cell(1,0).text = f"Electronically signed by: {data.get('keyed_by','')}\nDate: {now_str}"
+    tE.cell(1,1).text = f"Electronically approved by: {data.get('approved_by','')}\nDate: {now_str}"
+    tE.cell(1,2).text = "Name: ________________\n\nSignature: ________________\n\nDate: ___________"
+
+    doc.add_paragraph()
+    note = doc.add_paragraph()
+    note.add_run("Note: ").bold = True
+    note.add_run("All issued assets remain the property of the Company and must be returned in good condition. Any loss or damage must be reported immediately to the Warehouse.")
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def generate_return_docx(data):
+    from docx import Document
+    from docx.shared import Mm, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import io, os
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Mm(12)
+        section.bottom_margin = Mm(12)
+        section.left_margin = Mm(15)
+        section.right_margin = Mm(15)
+
+    ht = doc.add_table(rows=2, cols=3)
+    ht.style = "Table Grid"
+    if os.path.exists("logo.png"):
+        cell_logo = ht.cell(0,0).merge(ht.cell(1,0))
+        p_logo = cell_logo.paragraphs[0]
+        run = p_logo.add_run()
+        run.add_picture("logo.png", width=Mm(18))
+        p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    ht.cell(0,1).text = "TURCOMP ENGINEERING SERVICES SDN. BHD."
+    ht.cell(0,1).paragraphs[0].runs[0].bold = True
+    ht.cell(1,1).text = "WAREHOUSE RETURN FORM"
+    ht.cell(1,1).paragraphs[0].runs[0].bold = True
+    ht.cell(0,2).text = "Form No.\nRev. No."
+    ht.cell(1,2).text = "Issue Date:\nPage No."
+
+    doc.add_paragraph()
+
+    hA = doc.add_paragraph()
+    hA.add_run("A. REQUESTOR INFORMATION").bold = True
+    tA = doc.add_table(rows=3, cols=4)
+    tA.style = "Table Grid"
+    rowsA = [
+        ("Name", data.get("req_name",""), "Project / Job No", data.get("req_jobno","")),
+        ("Project Name", data.get("req_project",""), "Usage Location", data.get("req_location","")),
+        ("Date Out", data.get("date_out",""), "Date Returned", data.get("date_ret","")),
+    ]
+    for i,(a,b,c,d) in enumerate(rowsA):
+        tA.cell(i,0).text = a; tA.cell(i,0).paragraphs[0].runs[0].bold = True
+        tA.cell(i,1).text = str(b)
+        tA.cell(i,2).text = c; tA.cell(i,2).paragraphs[0].runs[0].bold = True
+        tA.cell(i,3).text = str(d)
+
+    doc.add_paragraph()
+    hB = doc.add_paragraph()
+    hB.add_run("B. ASSET RETURN DETAILS").bold = True
+
+    items = data.get("items", [])
+    tB = doc.add_table(rows=1+max(len(items),1), cols=8)
+    tB.style = "Table Grid"
+    headers = ["No","Asset Tag No.","Description","Serial No.","Qty","Condition Out","Condition Returned","Status"]
+    for j,hdr in enumerate(headers):
+        tB.cell(0,j).text = hdr
+        tB.cell(0,j).paragraphs[0].runs[0].bold = True
+    for i, item in enumerate(items, 1):
+        vals = [
+            str(i), str(item.get("TAGGING NUMBER","") or "-"),
+            str(item.get("DESCRIPTION","") or "-"), str(item.get("SERIAL NUMBER","") or "-"),
+            "1", str(item.get("CONDITION OUT","") or "-"),
+            data.get("cond_ret",""), data.get("ret_status","FULLY RETURNED")
+        ]
+        for j, v in enumerate(vals):
+            tB.cell(i,j).text = v
+
+    doc.add_paragraph()
+    hC = doc.add_paragraph()
+    hC.add_run("C. REMARKS / DISCREPANCIES").bold = True
+    doc.add_paragraph(data.get("remarks",""))
+
+    doc.add_paragraph()
+    hG = doc.add_paragraph()
+    hG.add_run("G. OVERALL RETURN STATUS").bold = True
+    status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
+    ret_stat = data.get("ret_status","FULLY RETURNED").title()
+    status_line = "   ".join([f"[{'X' if s==ret_stat else ' '}] {s}" for s in status_options])
+    doc.add_paragraph(status_line)
+
+    doc.add_paragraph()
+    hF = doc.add_paragraph()
+    hF.add_run("F. RETURN SIGN-OFF").bold = True
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    tF = doc.add_table(rows=2, cols=3)
+    tF.style = "Table Grid"
+    tF.cell(0,0).text = "Returned by (Requestor)"
+    tF.cell(0,1).text = "Received by\n(Storekeeper)"
+    tF.cell(0,2).text = "Verified by\n(Material Controller/Warehouse Coordinator)"
+    for c in [tF.cell(0,0), tF.cell(0,1), tF.cell(0,2)]:
+        c.paragraphs[0].runs[0].bold = True
+
+    tF.cell(1,0).text = "Name: ________________\n\nSignature: ________________\n\nDate: ___________"
+    tF.cell(1,1).text = f"Electronically received by: {data.get('keyed_by','')}\nDate: {now_str}"
+    tF.cell(1,2).text = f"Electronically verified by: {data.get('approved_by','')}\nDate: {now_str}" if data.get("approved_by") else "Name: ________________\n\nSignature: ________________\n\nDate: ___________"
+
+    doc.add_paragraph()
+    note = doc.add_paragraph()
+    note.add_run("Note: ").bold = True
+    note.add_run("All issued assets remain the property of the Company and must be returned in good condition.")
+
+    buf = io.BytesIO()
+    doc.save(buf)
     return buf.getvalue()
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
@@ -1410,67 +1654,106 @@ elif page == "🔄 Loan Tracker":
             }
             new_status = status_map.get(ret_status, "AVAILABLE")
 
-            b1, b2 = st.columns(2)
+            st.markdown("**Approval**")
+            ret_approval_choice = st.radio(
+                "Choose action",
+                ["✅ Self-Approve (I am authorised to approve)",
+                 "⏳ Send to Waitlist (needs another person to approve)"],
+                key="ret_approval_choice"
+            )
+
+            b1, b2, b3 = st.columns(3)
 
             with b1:
-                if st.button("✅ Confirm Return All Items", type="primary", key="basket_confirm_ret"):
+                if st.button("🚀 Submit Return Request", type="primary", key="basket_confirm_ret"):
                     if not keyed_by:
                         st.error("❌ Please enter who is processing this return.")
                     else:
-                        for b in st.session_state.return_basket:
-                            row_num = b["_idx"] + 2
-                            try:
-                                ws.update(f"P{row_num}:Y{row_num}", [[
-                                    clean(b.get("DATE OUT","")), str(date_ret),
-                                    clean(b.get("REQUESTOR","")),
-                                    clean(b.get("PROJECT / USAGE","")),
-                                    clean(b.get("LOCATION","")),
-                                    clean(b.get("CONDITION OUT","")),
-                                    cond_ret, clean(b.get("JOB NO","")),
-                                    new_status, remarks
-                                ]])
-                                ws.update(f"O{row_num}", [[new_cond]])
-                            except:
-                                pass
+                        approval_status = "APPROVED" if "Self-Approve" in ret_approval_choice else "PENDING"
+                        approved_by     = keyed_by if "Self-Approve" in ret_approval_choice else ""
+                        request_id      = str(uuid.uuid4())[:8].upper()
+                        items_json      = json.dumps([{
+                            "TAGGING NUMBER": b.get("TAGGING NUMBER",""),
+                            "DESCRIPTION":    b.get("DESCRIPTION",""),
+                            "SERIAL NUMBER":  b.get("SERIAL NUMBER",""),
+                            "REQUESTOR":      b.get("REQUESTOR",""),
+                            "JOB NO":         b.get("JOB NO",""),
+                            "DATE OUT":       b.get("DATE OUT",""),
+                            "CONDITION OUT":  b.get("CONDITION OUT",""),
+                            "PROJECT / USAGE":b.get("PROJECT / USAGE",""),
+                            "LOCATION":       b.get("LOCATION",""),
+                            "_idx":           b.get("_idx"),
+                        } for b in st.session_state.return_basket])
+
+                        aws = get_approvals_sheet()
+                        aws.append_row([
+                            request_id, keyed_by,
+                            datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                            "", "", "",
+                            clean(st.session_state.return_basket[0].get("PROJECT / USAGE","")) if st.session_state.return_basket else "",
+                            clean(st.session_state.return_basket[0].get("JOB NO","")) if st.session_state.return_basket else "",
+                            clean(st.session_state.return_basket[0].get("LOCATION","")) if st.session_state.return_basket else "",
+                            str(date_ret), str(date_ret),
+                            approval_status, approved_by, items_json, "RETURN"
+                        ])
+
+                        if approval_status == "APPROVED":
+                            for b in st.session_state.return_basket:
+                                row_num = b["_idx"] + 2
+                                try:
+                                    ws.update(f"P{row_num}:Y{row_num}", [[
+                                        clean(b.get("DATE OUT","")), str(date_ret),
+                                        clean(b.get("REQUESTOR","")),
+                                        clean(b.get("PROJECT / USAGE","")),
+                                        clean(b.get("LOCATION","")),
+                                        clean(b.get("CONDITION OUT","")),
+                                        cond_ret, clean(b.get("JOB NO","")),
+                                        new_status, remarks
+                                    ]])
+                                    ws.update(f"O{row_num}", [[new_cond]])
+                                except:
+                                    pass
 
                         st.session_state["last_return_batch"] = {
-                            "keyed_by":   keyed_by,
-                            "date_ret":   str(date_ret),
-                            "ret_status": ret_status,
-                            "cond_ret":   cond_ret,
-                            "remarks":    remarks,
-                            "items":      st.session_state.return_basket.copy()
+                            "keyed_by": keyed_by, "approved_by": approved_by,
+                            "date_ret": str(date_ret), "date_out": "",
+                            "ret_status": ret_status, "cond_ret": cond_ret,
+                            "remarks": remarks, "items": st.session_state.return_basket.copy(),
+                            "req_name": "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
                         }
                         st.session_state.return_basket = []
-                        st.success(f"✅ {len(st.session_state.get('last_return_batch',{}).get('items',[]))} item(s) returned successfully! Processed by: {keyed_by}")
-                        reload()
+                        st.cache_data.clear()
+
+                        if approval_status == "APPROVED":
+                            st.success(f"✅ Request {request_id} approved by {keyed_by}! Items returned. PDF/Word available below.")
+                        else:
+                            st.warning(f"⏳ Request {request_id} sent to waitlist for approval.")
+                        st.rerun()
 
             with b2:
-                # Build PDF preview using CURRENT basket values (before confirming)
-                if keyed_by:
+                if keyed_by and st.session_state.return_basket:
                     preview_data = {
-                        "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
-                        "req_jobno":    clean(st.session_state.return_basket[0].get("JOB NO","")) if st.session_state.return_basket else "",
-                        "req_project":  clean(st.session_state.return_basket[0].get("PROJECT / USAGE","")) if st.session_state.return_basket else "",
-                        "req_location": clean(st.session_state.return_basket[0].get("LOCATION","")) if st.session_state.return_basket else "",
-                        "date_out":     clean(st.session_state.return_basket[0].get("DATE OUT","")) if st.session_state.return_basket else "",
-                        "date_ret":     str(date_ret),
-                        "ret_status":   ret_status,
-                        "cond_ret":     cond_ret,
-                        "remarks":      remarks,
-                        "keyed_by":     keyed_by,
-                        "items":        st.session_state.return_basket
+                        "req_name":   "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                        "date_ret":   str(date_ret), "ret_status": ret_status,
+                        "cond_ret":   cond_ret, "remarks": remarks, "keyed_by": keyed_by,
+                        "items":      st.session_state.return_basket
                     }
-                    pdf_bytes = generate_return_pdf(preview_data)
-                    st.download_button(
-                        "📄 Download Return PDF",
-                        data=pdf_bytes,
-                        file_name=f"Return_{keyed_by}_{date_ret}.pdf",
-                        mime="application/pdf",
-                        key="basket_ret_pdf"
-                    )
-                else:
-                    st.caption("Enter your name above to enable PDF download.")
+                    st.download_button("📄 Preview PDF", data=generate_return_pdf(preview_data),
+                        file_name=f"Return_{keyed_by}_{date_ret}.pdf", mime="application/pdf", key="basket_ret_pdf_prev")
+
+            with b3:
+                if keyed_by and st.session_state.return_basket:
+                    preview_data = {
+                        "req_name":   "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                        "date_ret":   str(date_ret), "ret_status": ret_status,
+                        "cond_ret":   cond_ret, "remarks": remarks, "keyed_by": keyed_by,
+                        "items":      st.session_state.return_basket
+                    }
+                    st.download_button("📝 Preview Word", data=generate_return_docx(preview_data),
+                        file_name=f"Return_{keyed_by}_{date_ret}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="basket_ret_docx_prev")
 
         # Show last confirmed batch PDF if just returned
         if "last_return_batch" in st.session_state and st.session_state["last_return_batch"]:
@@ -1520,8 +1803,10 @@ elif page == "✅ Approvals":
         else:
             st.markdown(f"#### {len(pending)} Request(s) Waiting for Approval")
             for _, req in pending.iterrows():
+                req_type = req.get("TYPE", "ISSUE") or "ISSUE"
+                type_icon = "🚚" if req_type == "ISSUE" else "↩️"
                 with st.expander(
-                    f"📋 Request {req['REQUEST_ID']} — {req['REQ_NAME']} | "
+                    f"{type_icon} [{req_type}] Request {req['REQUEST_ID']} — {req['REQ_NAME']} | "
                     f"Job: {req['REQ_JOBNO']} | Keyed by: {req['KEYED_BY']} | "
                     f"{req['DATE_REQUESTED']}"
                 ):
@@ -1648,3 +1933,30 @@ elif page == "✅ Approvals":
                             mime="application/pdf",
                             key=f"dl_{req['REQUEST_ID']}"
                         )
+
+                    if st.button(f"📝 Download Issue Word — {req['REQUEST_ID']}",
+                                key=f"docx_{req['REQUEST_ID']}"):
+                        docx_data = {
+                            "req_name":    req["REQ_NAME"],
+                            "req_contact": req["REQ_CONTACT"],
+                            "req_position":req["REQ_POSITION"],
+                            "req_dept":    req["REQ_DEPT"],
+                            "req_project": req["REQ_PROJECT"],
+                            "req_jobno":   req["REQ_JOBNO"],
+                            "req_location":req["REQ_LOCATION"],
+                            "req_date":    req["REQ_DATE"],
+                            "req_retdate": req["REQ_RETDATE"],
+                            "date_out":    req["REQ_DATE"],
+                            "cond_out":    "GOOD",
+                            "keyed_by":    req["KEYED_BY"],
+                            "approved_by": req["APPROVED_BY"],
+                            "items":       items
+                        }
+                        docx_bytes = generate_issue_docx(docx_data)
+                        st.download_button(
+                            label=f"⬇️ Download Issue Word — {req['REQUEST_ID']}",
+                            data=docx_bytes,
+                            file_name=f"Issue_{req['REQ_NAME']}_{req['REQUEST_ID']}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"docxdl_{req['REQUEST_ID']}"
+                        )   
