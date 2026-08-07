@@ -622,11 +622,9 @@ def generate_return_pdf(data):
                 small
             ),
             Paragraph(
-                "Name: ________________"
-                "<br/><br/><br/><br/>"
-                "Signature: ________________"
-                "<br/><br/><br/>"
-                "Date: ___________",
+                (f"Electronically verified by: <b>{data.get('approved_by','')}</b><br/>Date: {now_str}"
+                 if data.get("approved_by")
+                 else "Name: ________________<br/><br/><br/><br/>Signature: ________________<br/><br/><br/>Date: ___________"),
                 small
             ),
         ],
@@ -1793,6 +1791,16 @@ elif page == "✅ Approvals":
     aws  = get_approvals_sheet()
     adf  = load_approvals()
 
+    approval_search = st.text_input(
+        "🔍 Search all approvals (Request ID, Name, Job No, Keyed by)",
+        key="approval_search"
+    )
+    if approval_search and not adf.empty:
+        mask = adf.apply(
+            lambda r: r.astype(str).str.contains(approval_search, case=False, na=False).any(), axis=1
+        )
+        adf = adf[mask]
+
     tab_pending, tab_approved = st.tabs(["⏳ Pending Approval", "✅ Approved Requests"])
 
     # ── PENDING ───────────────────────────────────────────────────────────────
@@ -1847,25 +1855,45 @@ elif page == "✅ Approvals":
                                         aws.update(f"N{i+1}", [[approver_name]])
                                         break
 
-                                # Mark items OUT in inventory
                                 ws = get_worksheet()
-                                for item in items:
-                                    idx = item.get("_idx")
-                                    if idx is not None:
-                                        row_num = int(idx) + 2
-                                        try:
-                                            ws.update(f"P{row_num}:Y{row_num}", [[
-                                                req["REQ_DATE"], "",
-                                                req["REQ_NAME"], req["REQ_PROJECT"],
-                                                req["REQ_LOCATION"], "GOOD",
-                                                "", req["REQ_JOBNO"],
-                                                "OUT", ""
-                                            ]])
-                                        except:
-                                            pass
+                                req_type = req.get("TYPE", "ISSUE") or "ISSUE"
+
+                                if req_type == "RETURN":
+                                    # Mark items back as AVAILABLE
+                                    for item in items:
+                                        idx = item.get("_idx")
+                                        if idx is not None:
+                                            row_num = int(idx) + 2
+                                            try:
+                                                ws.update(f"P{row_num}:Y{row_num}", [[
+                                                    item.get("DATE OUT",""), req["REQ_DATE"],
+                                                    item.get("REQUESTOR",""), item.get("PROJECT / USAGE",""),
+                                                    item.get("LOCATION",""), item.get("CONDITION OUT",""),
+                                                    "GOOD", item.get("JOB NO",""),
+                                                    "AVAILABLE", ""
+                                                ]])
+                                            except:
+                                                pass
+                                    st.success(f"✅ Return approved by {approver_name}! Items marked AVAILABLE. Form now available.")
+                                else:
+                                    # ISSUE — mark items OUT
+                                    for item in items:
+                                        idx = item.get("_idx")
+                                        if idx is not None:
+                                            row_num = int(idx) + 2
+                                            try:
+                                                ws.update(f"P{row_num}:Y{row_num}", [[
+                                                    req["REQ_DATE"], "",
+                                                    req["REQ_NAME"], req["REQ_PROJECT"],
+                                                    req["REQ_LOCATION"], "GOOD",
+                                                    "", req["REQ_JOBNO"],
+                                                    "OUT", ""
+                                                ]])
+                                            except:
+                                                pass
+                                    st.success(f"✅ Approved by {approver_name}! Items marked OUT. PDF now available.")
 
                                 st.cache_data.clear()
-                                st.success(f"✅ Approved by {approver_name}! Items marked OUT. PDF now available.")
                                 st.rerun()
 
                     with ac2:
@@ -1933,6 +1961,28 @@ elif page == "✅ Approvals":
                             mime="application/pdf",
                             key=f"dl_{req['REQUEST_ID']}"
                         )
+
+                    if req.get("TYPE") == "RETURN":
+                        if st.button(f"📄 Download Return PDF — {req['REQUEST_ID']}",
+                                        key=f"retpdf_{req['REQUEST_ID']}"):
+                            ret_data = {
+                                "req_name":    req["REQ_NAME"],
+                                "date_ret":    req["REQ_DATE"],
+                                "ret_status":  "FULLY RETURNED",
+                                "cond_ret":    "GOOD",
+                                "remarks":     "",
+                                "keyed_by":    req["KEYED_BY"],
+                                "approved_by": req["APPROVED_BY"],
+                                "items":       items
+                            }
+                            pdf_bytes = generate_return_pdf(ret_data)
+                            st.download_button(
+                                label=f"⬇️ Download Return Form — {req['REQUEST_ID']}",
+                                data=pdf_bytes,
+                                file_name=f"Return_{req['REQ_NAME']}_{req['REQUEST_ID']}.pdf",
+                                mime="application/pdf",
+                                key=f"retdl_{req['REQUEST_ID']}"
+                            )
 
                     if st.button(f"📝 Download Issue Word — {req['REQUEST_ID']}",
                                 key=f"docx_{req['REQUEST_ID']}"):
