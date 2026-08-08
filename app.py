@@ -1310,8 +1310,8 @@ elif page == "✏️ Management":
                             "", e_cat, e_type, e_brand, e_model,
                             e_serial, e_tag, e_desc, e_size, e_watt, e_thick,
                             e_qty, e_uom, e_stor, e_cond,
-                            e_dateout, e_dateret, e_req, e_proj,
-                            e_loc, e_co, e_cr, e_jobno, e_status, e_rem
+                            e_dateout, e_dateret, e_req, e_jobno, e_proj,
+                            e_loc, e_co, e_cr, e_status, e_rem
                         ]
                         ws.update(f"A{row_num}:Y{row_num}", [updated])
                         st.success(f"✅ Item '{e_desc}' has been updated successfully! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
@@ -1536,8 +1536,8 @@ elif page == "🔄 Loan Tracker":
                             try:
                                 ws.update(f"P{row_num}:Y{row_num}", [[
                                     str(date_out), "", req_name,
-                                    req_project, req_location, cond_out,
-                                    "", req_jobno, "OUT",
+                                    req_jobno, req_project, req_location,
+                                    cond_out, "", "OUT",
                                     str(b.get("REMARKS","") or "")
                                 ]])
                             except:
@@ -1723,11 +1723,11 @@ elif page == "🔄 Loan Tracker":
                                     ws.update(f"P{row_num}:Y{row_num}", [[
                                         clean(b.get("DATE OUT","")), str(date_ret),
                                         clean(b.get("REQUESTOR","")),
+                                        clean(b.get("JOB NO","")),
                                         clean(b.get("PROJECT / USAGE","")),
                                         clean(b.get("LOCATION","")),
                                         clean(b.get("CONDITION OUT","")),
-                                        cond_ret, clean(b.get("JOB NO","")),
-                                        new_status, remarks
+                                        cond_ret, new_status, remarks
                                     ]])
                                     ws.update(f"O{row_num}", [[new_cond]])
                                 except:
@@ -1909,9 +1909,9 @@ elif page == "✅ Approvals":
                                             try:
                                                 ws.update(f"P{row_num}:Y{row_num}", [[
                                                     item.get("DATE OUT",""), req["REQ_DATE"],
-                                                    item.get("REQUESTOR",""), item.get("PROJECT / USAGE",""),
-                                                    item.get("LOCATION",""), item.get("CONDITION OUT",""),
-                                                    "GOOD", item.get("JOB NO",""),
+                                                    item.get("REQUESTOR",""), item.get("JOB NO",""),
+                                                    item.get("PROJECT / USAGE",""), item.get("LOCATION",""),
+                                                    item.get("CONDITION OUT",""), "GOOD",
                                                     "AVAILABLE", ""
                                                 ]])
                                             except:
@@ -1926,9 +1926,9 @@ elif page == "✅ Approvals":
                                             try:
                                                 ws.update(f"P{row_num}:Y{row_num}", [[
                                                     req["REQ_DATE"], "",
-                                                    req["REQ_NAME"], req["REQ_PROJECT"],
-                                                    req["REQ_LOCATION"], "GOOD",
-                                                    "", req["REQ_JOBNO"],
+                                                    req["REQ_NAME"], req["REQ_JOBNO"],
+                                                    req["REQ_PROJECT"], req["REQ_LOCATION"],
+                                                    "GOOD", "",
                                                     "OUT", ""
                                                 ]])
                                             except:
