@@ -149,11 +149,14 @@ def get_approvals_sheet():
 def load_approvals():
     ws   = get_approvals_sheet()
     data = ws.get_all_records()
-    return pd.DataFrame(data) if data else pd.DataFrame(columns=[
+    df = pd.DataFrame(data) if data else pd.DataFrame(columns=[
         "REQUEST_ID","KEYED_BY","DATE_REQUESTED","REQ_NAME","REQ_CONTACT",
         "REQ_POSITION","REQ_DEPT","REQ_PROJECT","REQ_JOBNO","REQ_LOCATION",
         "REQ_DATE","REQ_RETDATE","STATUS","APPROVED_BY","ITEMS_JSON"
     ])
+    if not df.empty and "STATUS" in df.columns:
+        df = df[df["STATUS"] != "DELETED"]
+    return df
 def archive_old_approvals():
     """Move approved/rejected requests older than 30 days to an archive tab."""
     try:
@@ -208,6 +211,18 @@ def archive_old_approvals():
             pass  # Silently fail — don't block the app
     except:
         pass
+
+def delete_approval_request(request_id, deleted_by, reason):
+    """Marks a request as deleted — logged in sheet but hidden from app view."""
+    aws = get_approvals_sheet()
+    all_reqs = aws.get_all_values()
+    for i, r in enumerate(all_reqs):
+        if r and r[0] == request_id:
+            aws.update(f"M{i+1}", [["DELETED"]])
+            aws.update(f"Q{i+1}", [[deleted_by]])
+            aws.update(f"R{i+1}", [[reason]])
+            return True
+    return False
 
 @st.cache_data(ttl=30)
 def load_data():
@@ -1832,6 +1847,28 @@ elif page == "✅ Approvals":
                         items_df = pd.DataFrame(items)
                         disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
                         st.dataframe(items_df[disp], use_container_width=True)
+                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
+                            edit_name = st.text_input("Requestor Name", value=req.get("REQ_NAME",""), key=f"edit_name_{req['REQUEST_ID']}")
+                            edit_job  = st.text_input("Job No", value=req.get("REQ_JOBNO",""), key=f"edit_job_{req['REQUEST_ID']}")
+                            edit_proj = st.text_input("Project", value=req.get("REQ_PROJECT",""), key=f"edit_proj_{req['REQUEST_ID']}")
+                            edit_loc  = st.text_input("Location", value=req.get("REQ_LOCATION",""), key=f"edit_loc_{req['REQUEST_ID']}")
+                            edit_keyed= st.text_input("Keyed By", value=req.get("KEYED_BY",""), key=f"edit_keyed_{req['REQUEST_ID']}")
+
+                            if st.button(f"💾 Save Edits — {req['REQUEST_ID']}", key=f"save_edit_{req['REQUEST_ID']}"):
+                                all_reqs = aws.get_all_values()
+                                for i, r in enumerate(all_reqs):
+                                    if r and r[0] == req["REQUEST_ID"]:
+                                        aws.update(f"B{i+1}", [[edit_keyed]])
+                                        aws.update(f"D{i+1}", [[edit_name]])
+                                        aws.update(f"H{i+1}", [[edit_proj]])
+                                        aws.update(f"I{i+1}", [[edit_job]])
+                                        aws.update(f"J{i+1}", [[edit_loc]])
+                                        break
+                                st.cache_data.clear()
+                                st.success("✅ Request details updated!")
+                                st.rerun()
+
+
                     except:
                         st.warning("Could not load item details.")
                         items = []
@@ -1840,7 +1877,7 @@ elif page == "✅ Approvals":
                         "Your name (approver) ✱",
                         key=f"approver_{req['REQUEST_ID']}"
                     )
-                    ac1, ac2 = st.columns(2)
+                    ac1, ac2, ac3 = st.columns(3)
                     with ac1:
                         if st.button(f"✅ Approve Request {req['REQUEST_ID']}", type="primary",
                                      key=f"approve_{req['REQUEST_ID']}"):
@@ -1908,6 +1945,38 @@ elif page == "✅ Approvals":
                             st.warning(f"Request {req['REQUEST_ID']} rejected.")
                             st.rerun()
 
+
+                    with ac3:
+                        del_key = f"confirm_del_{req['REQUEST_ID']}"
+                        if del_key not in st.session_state:
+                            st.session_state[del_key] = False
+
+                        if not st.session_state[del_key]:
+                            if st.button(f"🗑️ Delete", key=f"del_btn_{req['REQUEST_ID']}"):
+                                st.session_state[del_key] = True
+                                st.rerun()
+                        else:
+                            st.warning("⚠️ Are you sure? This cannot be undone.")
+                            del_by = st.text_input("Your name (deleting this)", key=f"delby_{req['REQUEST_ID']}")
+                            del_reason = st.text_input("Reason for deletion", key=f"delreason_{req['REQUEST_ID']}")
+                            dc1, dc2 = st.columns(2)
+                            with dc1:
+                                if st.button("✅ Yes, Delete", key=f"del_confirm_{req['REQUEST_ID']}"):
+                                    if not del_by:
+                                        st.error("❌ Please enter your name.")
+                                    else:
+                                        delete_approval_request(req["REQUEST_ID"], del_by, del_reason)
+                                        st.session_state[del_key] = False
+                                        st.cache_data.clear()
+                                        st.success("Request deleted.")
+                                        st.rerun()
+                            with dc2:
+                                if st.button("❌ Cancel", key=f"del_cancel_{req['REQUEST_ID']}"):
+                                    st.session_state[del_key] = False
+                                    st.rerun()
+
+                 
+
     # ── APPROVED ──────────────────────────────────────────────────────────────
     with tab_approved:
         approved = adf[adf["STATUS"] == "APPROVED"] if not adf.empty else pd.DataFrame()
@@ -1931,6 +2000,26 @@ elif page == "✅ Approvals":
                         items_df = pd.DataFrame(items)
                         disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
                         st.dataframe(items_df[disp], use_container_width=True)
+                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
+                            edit_name = st.text_input("Requestor Name", value=req.get("REQ_NAME",""), key=f"edit_name_{req['REQUEST_ID']}")
+                            edit_job  = st.text_input("Job No", value=req.get("REQ_JOBNO",""), key=f"edit_job_{req['REQUEST_ID']}")
+                            edit_proj = st.text_input("Project", value=req.get("REQ_PROJECT",""), key=f"edit_proj_{req['REQUEST_ID']}")
+                            edit_loc  = st.text_input("Location", value=req.get("REQ_LOCATION",""), key=f"edit_loc_{req['REQUEST_ID']}")
+                            edit_keyed= st.text_input("Keyed By", value=req.get("KEYED_BY",""), key=f"edit_keyed_{req['REQUEST_ID']}")
+
+                            if st.button(f"💾 Save Edits — {req['REQUEST_ID']}", key=f"save_edit_{req['REQUEST_ID']}"):
+                                all_reqs = aws.get_all_values()
+                                for i, r in enumerate(all_reqs):
+                                    if r and r[0] == req["REQUEST_ID"]:
+                                        aws.update(f"B{i+1}", [[edit_keyed]])
+                                        aws.update(f"D{i+1}", [[edit_name]])
+                                        aws.update(f"H{i+1}", [[edit_proj]])
+                                        aws.update(f"I{i+1}", [[edit_job]])
+                                        aws.update(f"J{i+1}", [[edit_loc]])
+                                        break
+                                st.cache_data.clear()
+                                st.success("✅ Request details updated!")
+                                st.rerun()
                     except:
                         items = []
 
@@ -1963,25 +2052,36 @@ elif page == "✅ Approvals":
                         )
 
                     if req.get("TYPE") == "RETURN":
+                        ret_data = {
+                            "req_name":    req["REQ_NAME"],
+                            "date_ret":    req["REQ_DATE"],
+                            "ret_status":  "FULLY RETURNED",
+                            "cond_ret":    "GOOD",
+                            "remarks":     "",
+                            "keyed_by":    req["KEYED_BY"],
+                            "approved_by": req["APPROVED_BY"],
+                            "items":       items
+                        }
                         if st.button(f"📄 Download Return PDF — {req['REQUEST_ID']}",
                                         key=f"retpdf_{req['REQUEST_ID']}"):
-                            ret_data = {
-                                "req_name":    req["REQ_NAME"],
-                                "date_ret":    req["REQ_DATE"],
-                                "ret_status":  "FULLY RETURNED",
-                                "cond_ret":    "GOOD",
-                                "remarks":     "",
-                                "keyed_by":    req["KEYED_BY"],
-                                "approved_by": req["APPROVED_BY"],
-                                "items":       items
-                            }
                             pdf_bytes = generate_return_pdf(ret_data)
                             st.download_button(
-                                label=f"⬇️ Download Return Form — {req['REQUEST_ID']}",
+                                label=f"⬇️ Download Return Form PDF — {req['REQUEST_ID']}",
                                 data=pdf_bytes,
                                 file_name=f"Return_{req['REQ_NAME']}_{req['REQUEST_ID']}.pdf",
                                 mime="application/pdf",
                                 key=f"retdl_{req['REQUEST_ID']}"
+                            )
+
+                        if st.button(f"📝 Download Return Word — {req['REQUEST_ID']}",
+                                        key=f"retdocx_{req['REQUEST_ID']}"):
+                            docx_bytes = generate_return_docx(ret_data)
+                            st.download_button(
+                                label=f"⬇️ Download Return Form Word — {req['REQUEST_ID']}",
+                                data=docx_bytes,
+                                file_name=f"Return_{req['REQ_NAME']}_{req['REQUEST_ID']}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"retdocxdl_{req['REQUEST_ID']}"
                             )
 
                     if st.button(f"📝 Download Issue Word — {req['REQUEST_ID']}",
@@ -2010,3 +2110,31 @@ elif page == "✅ Approvals":
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             key=f"docxdl_{req['REQUEST_ID']}"
                         )   
+                    st.markdown("---")
+                    del_key2 = f"confirm_del2_{req['REQUEST_ID']}"
+                    if del_key2 not in st.session_state:
+                        st.session_state[del_key2] = False
+
+                    if not st.session_state[del_key2]:
+                        if st.button(f"🗑️ Delete This Request", key=f"del_btn2_{req['REQUEST_ID']}"):
+                            st.session_state[del_key2] = True
+                            st.rerun()
+                    else:
+                        st.warning("⚠️ Are you sure? This cannot be undone.")
+                        del_by2 = st.text_input("Your name (deleting this)", key=f"delby2_{req['REQUEST_ID']}")
+                        del_reason2 = st.text_input("Reason for deletion", key=f"delreason2_{req['REQUEST_ID']}")
+                        dc1, dc2 = st.columns(2)
+                        with dc1:
+                            if st.button("✅ Yes, Delete", key=f"del_confirm2_{req['REQUEST_ID']}"):
+                                if not del_by2:
+                                    st.error("❌ Please enter your name.")
+                                else:
+                                    delete_approval_request(req["REQUEST_ID"], del_by2, del_reason2)
+                                    st.session_state[del_key2] = False
+                                    st.cache_data.clear()
+                                    st.success("Request deleted.")
+                                    st.rerun()
+                        with dc2:
+                            if st.button("❌ Cancel", key=f"del_cancel2_{req['REQUEST_ID']}"):
+                                st.session_state[del_key2] = False
+                                st.rerun()
