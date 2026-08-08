@@ -1295,9 +1295,14 @@ elif page == "✏️ Management":
                     cur_co   = str(row.get("CONDITION OUT","GOOD")).upper()
                     co_idx   = CONDITION_OUT_OPTIONS.index(cur_co) if cur_co in CONDITION_OUT_OPTIONS else 0
                     e_co     = st.selectbox("Condition Out", CONDITION_OUT_OPTIONS, index=co_idx)
-                    cur_cr   = str(row.get("CONDITION RETURNED","GOOD")).upper()
-                    cr_idx   = CONDITION_FULL_OPTIONS.index(cur_cr) if cur_cr in CONDITION_FULL_OPTIONS else 0
-                    e_cr     = st.selectbox("Condition Returned", CONDITION_FULL_OPTIONS, index=cr_idx)
+                    condition_returned_options = ["N/A (Not Returned Yet)"] + CONDITION_FULL_OPTIONS
+                    cur_cr   = str(row.get("CONDITION RETURNED","") or "").upper()
+                    if not cur_cr or cur_cr in ["NAN", "NONE", ""]:
+                        cr_idx = 0
+                    else:
+                        cr_idx = condition_returned_options.index(cur_cr) if cur_cr in condition_returned_options else 0
+                    e_cr_choice = st.selectbox("Condition Returned", condition_returned_options, index=cr_idx)
+                    e_cr = "" if e_cr_choice == "N/A (Not Returned Yet)" else e_cr_choice
 
                 if st.form_submit_button("💾 Save All Changes", type="primary"):
                     try:
