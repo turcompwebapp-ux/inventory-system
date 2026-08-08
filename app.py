@@ -1958,7 +1958,22 @@ elif page == "✅ Approvals":
                         else:
                             st.warning("⚠️ Are you sure? This cannot be undone.")
                             del_by = st.text_input("Your name (deleting this)", key=f"delby_{req['REQUEST_ID']}")
-                            del_reason = st.text_input("Reason for deletion", key=f"delreason_{req['REQUEST_ID']}")
+                            reason_options = [
+                                "Duplicate entry",
+                                "Wrong item selected",
+                                "Wrong requestor information",
+                                "Request made by mistake",
+                                "Test entry / not a real request",
+                                "Cancelled by requestor",
+                                "Other (type below)"
+                            ]
+                            del_reason_choice = st.selectbox(
+                                "Reason for deletion", reason_options, key=f"delreason_sel_{req['REQUEST_ID']}"
+                            )
+                            if del_reason_choice == "Other (type below)":
+                                del_reason = st.text_input("Type your reason", key=f"delreason_{req['REQUEST_ID']}")
+                            else:
+                                del_reason = del_reason_choice
                             dc1, dc2 = st.columns(2)
                             with dc1:
                                 if st.button("✅ Yes, Delete", key=f"del_confirm_{req['REQUEST_ID']}"):
@@ -2122,7 +2137,22 @@ elif page == "✅ Approvals":
                     else:
                         st.warning("⚠️ Are you sure? This cannot be undone.")
                         del_by2 = st.text_input("Your name (deleting this)", key=f"delby2_{req['REQUEST_ID']}")
-                        del_reason2 = st.text_input("Reason for deletion", key=f"delreason2_{req['REQUEST_ID']}")
+                        reason_options2 = [
+                            "Duplicate entry",
+                            "Wrong item selected",
+                            "Wrong requestor information",
+                            "Request made by mistake",
+                            "Test entry / not a real request",
+                            "Cancelled by requestor",
+                            "Other (type below)"
+                        ]
+                        del_reason_choice2 = st.selectbox(
+                            "Reason for deletion", reason_options2, key=f"delreason_sel2_{req['REQUEST_ID']}"
+                        )
+                        if del_reason_choice2 == "Other (type below)":
+                            del_reason2 = st.text_input("Type your reason", key=f"delreason2_{req['REQUEST_ID']}")
+                        else:
+                            del_reason2 = del_reason_choice2
                         dc1, dc2 = st.columns(2)
                         with dc1:
                             if st.button("✅ Yes, Delete", key=f"del_confirm2_{req['REQUEST_ID']}"):
