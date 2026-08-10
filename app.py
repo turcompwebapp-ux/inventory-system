@@ -224,6 +224,41 @@ def delete_approval_request(request_id, deleted_by, reason):
             return True
     return False
 
+@st.cache_resource
+def get_settings_sheet():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=SCOPES
+    )
+    client = gspread.authorize(creds)
+    return client.open("inventorydata").worksheet("settings")
+
+@st.cache_data(ttl=15)
+def load_categories():
+    ws = get_settings_sheet()
+    values = ws.col_values(1)  # column A
+    cats = [v.strip() for v in values[1:] if v.strip()]  # skip header row
+    return sorted(cats)
+
+def add_category(new_cat):
+    ws = get_settings_sheet()
+    existing = load_categories()
+    if new_cat.strip().upper() in [c.upper() for c in existing]:
+        return False
+    ws.append_row([new_cat.strip().upper()])
+    st.cache_data.clear()
+    return True
+
+def remove_category(cat_to_remove):
+    ws = get_settings_sheet()
+    all_values = ws.get_all_values()
+    for i, row_data in enumerate(all_values):
+        if row_data and row_data[0].strip().upper() == cat_to_remove.strip().upper():
+            ws.delete_rows(i + 1)
+            st.cache_data.clear()
+            return True
+    return False
+
 @st.cache_data(ttl=30)
 def load_data():
     ws   = get_worksheet()
@@ -899,7 +934,8 @@ with st.sidebar:
         "📋 Ledger & Export",
         "✏️ Management",
         "🔄 Loan Tracker",
-        "✅ Approvals"
+        "✅ Approvals",
+        "⚙️ Settings"
     ], label_visibility="collapsed")
     st.markdown(f"""
     <div style="position:fixed;bottom:20px;font-size:11px;color:#475569;">
@@ -1139,14 +1175,10 @@ elif page == "✏️ Management":
             st.markdown("#### New Item Details")
             c1, c2 = st.columns(2)
             with c1:
-                existing_cats = sorted(df["CATEGORY"].dropna().unique().tolist())
-                cat_choice = st.selectbox("Category", ["-- Select --"] + existing_cats + ["+ Add New Category"])
-                if cat_choice == "+ Add New Category":
-                    category = st.text_input("Type New Category Name")
-                elif cat_choice == "-- Select --":
-                    category = ""
-                else:
-                    category = cat_choice
+                existing_cats = load_categories()
+                cat_choice = st.selectbox("Category", ["-- Select --"] + existing_cats)
+                category = "" if cat_choice == "-- Select --" else cat_choice
+                st.caption("💡 Need a new category? Go to ⚙️ Settings to add one.")
                 type_spec   = st.text_input("Type/Spec")
                 brand       = st.text_input("Brand")
                 model       = st.text_input("Model")
@@ -1220,15 +1252,12 @@ elif page == "✏️ Management":
                 st.markdown("**Inventory Details**")
                 c1, c2 = st.columns(2)
                 with c1:
-                    existing_cats_edit = sorted(df["CATEGORY"].dropna().unique().tolist())
+                    existing_cats_edit = load_categories()
                     current_cat = str(row.get("CATEGORY") or "")
-                    cat_options = existing_cats_edit + ["+ Add New Category"]
+                    cat_options = existing_cats_edit if current_cat in existing_cats_edit else existing_cats_edit + [current_cat]
                     cat_idx = cat_options.index(current_cat) if current_cat in cat_options else 0
-                    e_cat_choice = st.selectbox("Category", cat_options, index=cat_idx)
-                    if e_cat_choice == "+ Add New Category":
-                        e_cat = st.text_input("Type New Category Name", value="")
-                    else:
-                        e_cat = e_cat_choice
+                    e_cat = st.selectbox("Category", cat_options, index=cat_idx)
+                    st.caption("💡 Need a new category? Go to ⚙️ Settings to add one.")
                     e_type   = st.text_input("Type/Spec",       value=str(row.get("TYPE/SPEC")    or ""))
                     e_brand  = st.text_input("Brand",           value=str(row.get("BRAND")        or ""))
                     e_model  = st.text_input("Model",           value=str(row.get("MODEL")        or ""))
@@ -2173,3 +2202,64 @@ elif page == "✅ Approvals":
                             if st.button("❌ Cancel", key=f"del_cancel2_{req['REQUEST_ID']}"):
                                 st.session_state[del_key2] = False
                                 st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE 6 — SETTINGS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "⚙️ Settings":
+    st.markdown("## ⚙️ Settings")
+    st.markdown("### Manage Category Dropdown List")
+    st.caption("Add or remove categories available in the Add/Edit Item forms.")
+
+    categories = load_categories()
+
+    st.markdown("---")
+    st.markdown(f"**Current Categories ({len(categories)})**")
+
+    if not categories:
+        st.info("No categories yet. Add one below.")
+    else:
+        for cat in categories:
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.write(cat)
+            with c2:
+                del_key = f"confirm_del_cat_{cat}"
+                if del_key not in st.session_state:
+                    st.session_state[del_key] = False
+
+                if not st.session_state[del_key]:
+                    if st.button("✕", key=f"del_cat_{cat}"):
+                        st.session_state[del_key] = True
+                        st.rerun()
+
+        # Show confirmation for whichever category was clicked
+        for cat in categories:
+            del_key = f"confirm_del_cat_{cat}"
+            if st.session_state.get(del_key):
+                st.warning(f"⚠️ Are you sure you want to remove **{cat}**? This cannot be undone.")
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button(f"✅ Yes, remove {cat}", key=f"confirm_yes_{cat}"):
+                        remove_category(cat)
+                        st.session_state[del_key] = False
+                        st.success(f"Removed '{cat}'")
+                        st.rerun()
+                with cc2:
+                    if st.button(f"❌ Cancel", key=f"confirm_no_{cat}"):
+                        st.session_state[del_key] = False
+                        st.rerun()
+
+    st.markdown("---")
+    st.markdown("**Add New Category**")
+    new_cat_input = st.text_input("Type new category name", key="new_cat_input")
+    if st.button("➕ Add Category", type="primary"):
+        if not new_cat_input.strip():
+            st.error("❌ Please type a category name.")
+        else:
+            success = add_category(new_cat_input)
+            if success:
+                st.success(f"✅ Added '{new_cat_input.strip().upper()}'")
+                st.rerun()
+            else:
+                st.error("❌ This category already exists.")
