@@ -1148,11 +1148,11 @@ elif page == "📋 Ledger & Export":
         cond   = str(row.get("ACTUAL CONDITION","")).upper()
         status = str(row.get("STATUS","")).upper()
         if cond in ["DAMAGED","DAMAGED (NOT WORKING)","LOST"]:
-            return ["background-color:#fff0f0"] * len(row)
+            return ["background-color:#f8b4b4"] * len(row)
         if status == "OUT":
-            return ["background-color:#fffbeb"] * len(row)
-        if cond in ["DAMAGED (WORKING)","MINOR ISSUE","SERVICE DUE"]:
-            return ["background-color:#fff7ed"] * len(row)
+            return ["background-color:#fde68a"] * len(row)
+        if cond in ["DAMAGED (WORKING)","UNDER REPAIR","SERVICE DUE"]:
+            return ["background-color:#fdba74"] * len(row)
         return [""] * len(row)
 
     display_cols = [c for c in dff.columns if c != "NO"]
