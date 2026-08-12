@@ -1210,6 +1210,12 @@ elif page == "✏️ Management":
                         quantity, uom, storage_loc, condition,
                         "", "", "", "", "", "", "", "", "AVAILABLE", remarks
                     ]
+
+                    # Auto-expand the sheet if it's running out of rows
+                    current_row_count = ws.row_count
+                    if next_row > current_row_count:
+                        ws.add_rows(200)  # add 200 extra rows as buffer
+
                     ws.update(f"A{next_row}:Y{next_row}", [new_data])
                     st.success(f"✅ Item '{description}' added successfully at row {next_row}! ({datetime.now().strftime('%Y-%m-%d %H:%M')})")
                     reload()
