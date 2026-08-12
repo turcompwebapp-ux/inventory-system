@@ -335,7 +335,7 @@ def search_item(df, label="search"):
     )
     idx        = options.index(chosen)
     row        = matches.iloc[idx]
-    row_num    = matches.index[idx] + 2
+    row_num    = int(matches.index[idx]) + 2
 
     # Detail card
     st.markdown(f"""
@@ -1374,7 +1374,7 @@ elif page == "✏️ Management":
             confirm = st.checkbox("I understand this action is permanent and cannot be undone")
             if confirm:
                 if st.button("🗑️ Permanently Delete This Item", type="primary"):
-                    ws.delete_rows(row_num)
+                    ws.delete_rows(int(row_num))
                     st.success(f"✅ Item '{row.get('DESCRIPTION','')}' has been permanently deleted from the system.")
                     reload()
 
