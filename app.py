@@ -636,8 +636,13 @@ def generate_return_pdf(data):
     # Overall return status
     story.append(Paragraph("<b>G. OVERALL RETURN STATUS</b>", bold))
     status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
-    ret_stat = data.get("ret_status","FULLY RETURNED").title()
-    status_row = [f"☑ {s}" if s == ret_stat else f"☐ {s}" for s in status_options]
+    ret_stat_raw = str(data.get("ret_status","FULLY RETURNED")).strip().upper()
+    status_row = []
+    for s in status_options:
+        if s.upper() == ret_stat_raw:
+            status_row.append(f"■ {s}")
+        else:
+            status_row.append(f"□ {s}")
     st2 = Table([status_row], colWidths=[36*mm]*5)
     st2.setStyle(TableStyle([
         ("BOX",      (0,0), (-1,-1), 0.5, colors.black),
@@ -1786,22 +1791,32 @@ elif page == "🔄 Loan Tracker":
 
             with b2:
                 if keyed_by and st.session_state.return_basket:
+                    first_item = st.session_state.return_basket[0] if st.session_state.return_basket else {}
                     preview_data = {
-                        "req_name":   "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
-                        "date_ret":   str(date_ret), "ret_status": ret_status,
-                        "cond_ret":   cond_ret, "remarks": remarks, "keyed_by": keyed_by,
-                        "items":      st.session_state.return_basket
+                        "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_item.get("REQUESTOR","")),
+                        "req_jobno":    clean(first_item.get("JOB NO","")),
+                        "req_project":  clean(first_item.get("PROJECT / USAGE","")),
+                        "req_location": clean(first_item.get("LOCATION","")),
+                        "date_out":     clean(first_item.get("DATE OUT","")),
+                        "date_ret":     str(date_ret), "ret_status": ret_status,
+                        "cond_ret":     cond_ret, "remarks": remarks, "keyed_by": keyed_by,
+                        "items":        st.session_state.return_basket
                     }
                     st.download_button("📄 Preview PDF", data=generate_return_pdf(preview_data),
                         file_name=f"Return_{keyed_by}_{date_ret}.pdf", mime="application/pdf", key="basket_ret_pdf_prev")
 
             with b3:
                 if keyed_by and st.session_state.return_basket:
+                    first_item = st.session_state.return_basket[0] if st.session_state.return_basket else {}
                     preview_data = {
-                        "req_name":   "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
-                        "date_ret":   str(date_ret), "ret_status": ret_status,
-                        "cond_ret":   cond_ret, "remarks": remarks, "keyed_by": keyed_by,
-                        "items":      st.session_state.return_basket
+                        "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_item.get("REQUESTOR","")),
+                        "req_jobno":    clean(first_item.get("JOB NO","")),
+                        "req_project":  clean(first_item.get("PROJECT / USAGE","")),
+                        "req_location": clean(first_item.get("LOCATION","")),
+                        "date_out":     clean(first_item.get("DATE OUT","")),
+                        "date_ret":     str(date_ret), "ret_status": ret_status,
+                        "cond_ret":     cond_ret, "remarks": remarks, "keyed_by": keyed_by,
+                        "items":        st.session_state.return_basket
                     }
                     st.download_button("📝 Preview Word", data=generate_return_docx(preview_data),
                         file_name=f"Return_{keyed_by}_{date_ret}.docx",
