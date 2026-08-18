@@ -1910,14 +1910,7 @@ elif page == "✅ Approvals":
                         items_df = pd.DataFrame(items)
                         disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
                         st.dataframe(items_df[disp], use_container_width=True)
-                        first_basket_item2 = st.session_state.return_basket[0] if st.session_state.return_basket else {}
-                        st.session_state["last_return_batch"] = {
-                            "keyed_by":     keyed_by, "approved_by": approved_by,
-                            "req_jobno":    clean(first_basket_item2.get("JOB NO","")),
-                            "req_project":  clean(first_basket_item2.get("PROJECT / USAGE","")),
-                            "req_location": clean(first_basket_item2.get("LOCATION","")),
-                            "date_out":     clean(first_basket_item2.get("DATE OUT","")),
-                            "                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
+                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
                             ec1, ec2 = st.columns(2)
                             with ec1:
                                 edit_name    = st.text_input("Requestor Name", value=req.get("REQ_NAME","") or "", key=f"edit_name_{req['REQUEST_ID']}")
@@ -1945,12 +1938,7 @@ elif page == "✅ Approvals":
                                         break
                                 st.cache_data.clear()
                                 st.success("✅ Request details updated!")
-                                st.rerun()date_ret":     str(date_ret),
-                            "ret_status":   ret_status, "cond_ret": cond_ret,
-                            "remarks":      remarks, "items": st.session_state.return_basket.copy(),
-                            "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_basket_item2.get("REQUESTOR","")),
-                        }
-
+                                st.rerun()
 
                     except:
                         st.warning("Could not load item details.")
