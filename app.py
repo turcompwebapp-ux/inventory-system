@@ -152,7 +152,8 @@ def load_approvals():
     df = pd.DataFrame(data) if data else pd.DataFrame(columns=[
         "REQUEST_ID","KEYED_BY","DATE_REQUESTED","REQ_NAME","REQ_CONTACT",
         "REQ_POSITION","REQ_DEPT","REQ_PROJECT","REQ_JOBNO","REQ_LOCATION",
-        "REQ_DATE","REQ_RETDATE","STATUS","APPROVED_BY","ITEMS_JSON"
+        "REQ_DATE","REQ_RETDATE","STATUS","APPROVED_BY","ITEMS_JSON","TYPE",
+        "DELETED_BY","DELETE_REASON","RET_STATUS"
     ])
     if not df.empty and "STATUS" in df.columns:
         df = df[df["STATUS"] != "DELETED"]
@@ -892,8 +893,8 @@ def generate_return_docx(data):
     hG = doc.add_paragraph()
     hG.add_run("G. OVERALL RETURN STATUS").bold = True
     status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
-    ret_stat = data.get("ret_status","FULLY RETURNED").title()
-    status_line = "   ".join([f"[{'X' if s==ret_stat else ' '}] {s}" for s in status_options])
+    ret_stat_raw = str(data.get("ret_status","FULLY RETURNED")).strip().upper()
+    status_line = "   ".join([f"[{'X' if s.upper()==ret_stat_raw else ' '}] {s}" for s in status_options])
     doc.add_paragraph(status_line)
 
     doc.add_paragraph()
@@ -1744,16 +1745,18 @@ elif page == "🔄 Loan Tracker":
                         } for b in st.session_state.return_basket])
 
                         aws = get_approvals_sheet()
+                        first_basket_item = st.session_state.return_basket[0] if st.session_state.return_basket else {}
                         aws.append_row([
                             request_id, keyed_by,
                             datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                            "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_basket_item.get("REQUESTOR","")),
                             "", "", "",
-                            clean(st.session_state.return_basket[0].get("PROJECT / USAGE","")) if st.session_state.return_basket else "",
-                            clean(st.session_state.return_basket[0].get("JOB NO","")) if st.session_state.return_basket else "",
-                            clean(st.session_state.return_basket[0].get("LOCATION","")) if st.session_state.return_basket else "",
+                            clean(first_basket_item.get("PROJECT / USAGE","")),
+                            clean(first_basket_item.get("JOB NO","")),
+                            clean(first_basket_item.get("LOCATION","")),
                             str(date_ret), str(date_ret),
-                            approval_status, approved_by, items_json, "RETURN"
+                            approval_status, approved_by, items_json, "RETURN",
+                            "", "", ret_status
                         ])
 
                         if approval_status == "APPROVED":
@@ -1773,12 +1776,17 @@ elif page == "🔄 Loan Tracker":
                                 except:
                                     pass
 
+                        first_basket_item2 = st.session_state.return_basket[0] if st.session_state.return_basket else {}
                         st.session_state["last_return_batch"] = {
-                            "keyed_by": keyed_by, "approved_by": approved_by,
-                            "date_ret": str(date_ret), "date_out": "",
-                            "ret_status": ret_status, "cond_ret": cond_ret,
-                            "remarks": remarks, "items": st.session_state.return_basket.copy(),
-                            "req_name": "Multiple" if len(st.session_state.return_basket) > 1 else clean(st.session_state.return_basket[0].get("REQUESTOR","")),
+                            "keyed_by":     keyed_by, "approved_by": approved_by,
+                            "req_jobno":    clean(first_basket_item2.get("JOB NO","")),
+                            "req_project":  clean(first_basket_item2.get("PROJECT / USAGE","")),
+                            "req_location": clean(first_basket_item2.get("LOCATION","")),
+                            "date_out":     clean(first_basket_item2.get("DATE OUT","")),
+                            "date_ret":     str(date_ret),
+                            "ret_status":   ret_status, "cond_ret": cond_ret,
+                            "remarks":      remarks, "items": st.session_state.return_basket.copy(),
+                            "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_basket_item2.get("REQUESTOR","")),
                         }
                         st.session_state.return_basket = []
                         st.cache_data.clear()
@@ -1902,12 +1910,25 @@ elif page == "✅ Approvals":
                         items_df = pd.DataFrame(items)
                         disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
                         st.dataframe(items_df[disp], use_container_width=True)
-                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
-                            edit_name = st.text_input("Requestor Name", value=req.get("REQ_NAME",""), key=f"edit_name_{req['REQUEST_ID']}")
-                            edit_job  = st.text_input("Job No", value=req.get("REQ_JOBNO",""), key=f"edit_job_{req['REQUEST_ID']}")
-                            edit_proj = st.text_input("Project", value=req.get("REQ_PROJECT",""), key=f"edit_proj_{req['REQUEST_ID']}")
-                            edit_loc  = st.text_input("Location", value=req.get("REQ_LOCATION",""), key=f"edit_loc_{req['REQUEST_ID']}")
-                            edit_keyed= st.text_input("Keyed By", value=req.get("KEYED_BY",""), key=f"edit_keyed_{req['REQUEST_ID']}")
+                        first_basket_item2 = st.session_state.return_basket[0] if st.session_state.return_basket else {}
+                        st.session_state["last_return_batch"] = {
+                            "keyed_by":     keyed_by, "approved_by": approved_by,
+                            "req_jobno":    clean(first_basket_item2.get("JOB NO","")),
+                            "req_project":  clean(first_basket_item2.get("PROJECT / USAGE","")),
+                            "req_location": clean(first_basket_item2.get("LOCATION","")),
+                            "date_out":     clean(first_basket_item2.get("DATE OUT","")),
+                            "                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
+                            ec1, ec2 = st.columns(2)
+                            with ec1:
+                                edit_name    = st.text_input("Requestor Name", value=req.get("REQ_NAME","") or "", key=f"edit_name_{req['REQUEST_ID']}")
+                                edit_contact = st.text_input("Contact No",     value=req.get("REQ_CONTACT","") or "", key=f"edit_contact_{req['REQUEST_ID']}")
+                                edit_pos     = st.text_input("Position",      value=req.get("REQ_POSITION","") or "", key=f"edit_pos_{req['REQUEST_ID']}")
+                                edit_dept    = st.text_input("Department",    value=req.get("REQ_DEPT","") or "", key=f"edit_dept_{req['REQUEST_ID']}")
+                            with ec2:
+                                edit_proj    = st.text_input("Project",       value=req.get("REQ_PROJECT","") or "", key=f"edit_proj_{req['REQUEST_ID']}")
+                                edit_job     = st.text_input("Job No",        value=req.get("REQ_JOBNO","") or "", key=f"edit_job_{req['REQUEST_ID']}")
+                                edit_loc     = st.text_input("Location",      value=req.get("REQ_LOCATION","") or "", key=f"edit_loc_{req['REQUEST_ID']}")
+                                edit_keyed   = st.text_input("Keyed By",      value=req.get("KEYED_BY","") or "", key=f"edit_keyed_{req['REQUEST_ID']}")
 
                             if st.button(f"💾 Save Edits — {req['REQUEST_ID']}", key=f"save_edit_{req['REQUEST_ID']}"):
                                 all_reqs = aws.get_all_values()
@@ -1915,13 +1936,20 @@ elif page == "✅ Approvals":
                                     if r and r[0] == req["REQUEST_ID"]:
                                         aws.update(f"B{i+1}", [[edit_keyed]])
                                         aws.update(f"D{i+1}", [[edit_name]])
+                                        aws.update(f"E{i+1}", [[edit_contact]])
+                                        aws.update(f"F{i+1}", [[edit_pos]])
+                                        aws.update(f"G{i+1}", [[edit_dept]])
                                         aws.update(f"H{i+1}", [[edit_proj]])
                                         aws.update(f"I{i+1}", [[edit_job]])
                                         aws.update(f"J{i+1}", [[edit_loc]])
                                         break
                                 st.cache_data.clear()
                                 st.success("✅ Request details updated!")
-                                st.rerun()
+                                st.rerun()date_ret":     str(date_ret),
+                            "ret_status":   ret_status, "cond_ret": cond_ret,
+                            "remarks":      remarks, "items": st.session_state.return_basket.copy(),
+                            "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_basket_item2.get("REQUESTOR","")),
+                        }
 
 
                     except:
@@ -2070,12 +2098,25 @@ elif page == "✅ Approvals":
                         items_df = pd.DataFrame(items)
                         disp = [c for c in ["TAGGING NUMBER","DESCRIPTION","SERIAL NUMBER","BRAND","SIZE"] if c in items_df.columns]
                         st.dataframe(items_df[disp], use_container_width=True)
-                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
-                            edit_name = st.text_input("Requestor Name", value=req.get("REQ_NAME",""), key=f"edit_name_{req['REQUEST_ID']}")
-                            edit_job  = st.text_input("Job No", value=req.get("REQ_JOBNO",""), key=f"edit_job_{req['REQUEST_ID']}")
-                            edit_proj = st.text_input("Project", value=req.get("REQ_PROJECT",""), key=f"edit_proj_{req['REQUEST_ID']}")
-                            edit_loc  = st.text_input("Location", value=req.get("REQ_LOCATION",""), key=f"edit_loc_{req['REQUEST_ID']}")
-                            edit_keyed= st.text_input("Keyed By", value=req.get("KEYED_BY",""), key=f"edit_keyed_{req['REQUEST_ID']}")
+                        first_basket_item2 = st.session_state.return_basket[0] if st.session_state.return_basket else {}
+                        st.session_state["last_return_batch"] = {
+                            "keyed_by":     keyed_by, "approved_by": approved_by,
+                            "req_jobno":    clean(first_basket_item2.get("JOB NO","")),
+                            "req_project":  clean(first_basket_item2.get("PROJECT / USAGE","")),
+                            "req_location": clean(first_basket_item2.get("LOCATION","")),
+                            "date_out":     clean(first_basket_item2.get("DATE OUT","")),
+                            "                        with st.expander(f"✏️ Edit Request Details — {req['REQUEST_ID']}"):
+                            ec1, ec2 = st.columns(2)
+                            with ec1:
+                                edit_name    = st.text_input("Requestor Name", value=req.get("REQ_NAME","") or "", key=f"edit_name_{req['REQUEST_ID']}")
+                                edit_contact = st.text_input("Contact No",     value=req.get("REQ_CONTACT","") or "", key=f"edit_contact_{req['REQUEST_ID']}")
+                                edit_pos     = st.text_input("Position",      value=req.get("REQ_POSITION","") or "", key=f"edit_pos_{req['REQUEST_ID']}")
+                                edit_dept    = st.text_input("Department",    value=req.get("REQ_DEPT","") or "", key=f"edit_dept_{req['REQUEST_ID']}")
+                            with ec2:
+                                edit_proj    = st.text_input("Project",       value=req.get("REQ_PROJECT","") or "", key=f"edit_proj_{req['REQUEST_ID']}")
+                                edit_job     = st.text_input("Job No",        value=req.get("REQ_JOBNO","") or "", key=f"edit_job_{req['REQUEST_ID']}")
+                                edit_loc     = st.text_input("Location",      value=req.get("REQ_LOCATION","") or "", key=f"edit_loc_{req['REQUEST_ID']}")
+                                edit_keyed   = st.text_input("Keyed By",      value=req.get("KEYED_BY","") or "", key=f"edit_keyed_{req['REQUEST_ID']}")
 
                             if st.button(f"💾 Save Edits — {req['REQUEST_ID']}", key=f"save_edit_{req['REQUEST_ID']}"):
                                 all_reqs = aws.get_all_values()
@@ -2083,13 +2124,20 @@ elif page == "✅ Approvals":
                                     if r and r[0] == req["REQUEST_ID"]:
                                         aws.update(f"B{i+1}", [[edit_keyed]])
                                         aws.update(f"D{i+1}", [[edit_name]])
+                                        aws.update(f"E{i+1}", [[edit_contact]])
+                                        aws.update(f"F{i+1}", [[edit_pos]])
+                                        aws.update(f"G{i+1}", [[edit_dept]])
                                         aws.update(f"H{i+1}", [[edit_proj]])
                                         aws.update(f"I{i+1}", [[edit_job]])
                                         aws.update(f"J{i+1}", [[edit_loc]])
                                         break
                                 st.cache_data.clear()
                                 st.success("✅ Request details updated!")
-                                st.rerun()
+                                st.rerun()date_ret":     str(date_ret),
+                            "ret_status":   ret_status, "cond_ret": cond_ret,
+                            "remarks":      remarks, "items": st.session_state.return_basket.copy(),
+                            "req_name":     "Multiple" if len(st.session_state.return_basket) > 1 else clean(first_basket_item2.get("REQUESTOR","")),
+                        }
                     except:
                         items = []
 
@@ -2122,15 +2170,20 @@ elif page == "✅ Approvals":
                         )
 
                     if req.get("TYPE") == "RETURN":
+                        first_item = items[0] if items else {}
                         ret_data = {
-                            "req_name":    req["REQ_NAME"],
-                            "date_ret":    req["REQ_DATE"],
-                            "ret_status":  "FULLY RETURNED",
-                            "cond_ret":    "GOOD",
-                            "remarks":     "",
-                            "keyed_by":    req["KEYED_BY"],
-                            "approved_by": req["APPROVED_BY"],
-                            "items":       items
+                            "req_name":     req.get("REQ_NAME",""),
+                            "req_jobno":    req.get("REQ_JOBNO",""),
+                            "req_project":  req.get("REQ_PROJECT",""),
+                            "req_location": req.get("REQ_LOCATION",""),
+                            "date_out":     first_item.get("DATE OUT",""),
+                            "date_ret":     req.get("REQ_DATE",""),
+                            "ret_status":   req.get("RET_STATUS","FULLY RETURNED") or "FULLY RETURNED",
+                            "cond_ret":     "GOOD",
+                            "remarks":      "",
+                            "keyed_by":     req.get("KEYED_BY",""),
+                            "approved_by":  req.get("APPROVED_BY",""),
+                            "items":        items
                         }
                         if st.button(f"📄 Download Return PDF — {req['REQUEST_ID']}",
                                         key=f"retpdf_{req['REQUEST_ID']}"):
