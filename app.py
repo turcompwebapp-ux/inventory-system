@@ -642,15 +642,21 @@ def generate_return_pdf(data):
     for s in status_options:
         s_clean = "".join(s.upper().split())
         if s_clean == ret_stat_raw:
-            status_row.append(f"☑ {s}")
+            status_row.append(f"[X] {s}")
         else:
-            status_row.append(f"☐ {s}")
+            status_row.append(f"[  ] {s}")
     st2 = Table([status_row], colWidths=[36*mm]*5)
-    st2.setStyle(TableStyle([
+    style_commands = [
         ("BOX",      (0,0), (-1,-1), 0.5, colors.black),
         ("FONTSIZE", (0,0), (-1,-1), 8),
         ("ALIGN",    (0,0), (-1,-1), "CENTER"),
-    ]))
+    ]
+    for idx, s in enumerate(status_options):
+        s_clean = "".join(s.upper().split())
+        if s_clean == ret_stat_raw:
+            style_commands.append(("FONTNAME", (idx,0), (idx,0), "Helvetica-Bold"))
+            style_commands.append(("BACKGROUND", (idx,0), (idx,0), colors.HexColor("#DCFCE7")))
+    st2.setStyle(TableStyle(style_commands))
     story.append(st2)
     story.append(Spacer(1, 4*mm))
 
