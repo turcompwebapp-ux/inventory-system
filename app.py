@@ -637,13 +637,14 @@ def generate_return_pdf(data):
     # Overall return status
     story.append(Paragraph("<b>G. OVERALL RETURN STATUS</b>", bold))
     status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
-    ret_stat_raw = str(data.get("ret_status","FULLY RETURNED")).strip().upper()
+    ret_stat_raw = "".join(str(data.get("ret_status","FULLY RETURNED")).strip().upper().split())
     status_row = []
     for s in status_options:
-        if s.upper() == ret_stat_raw:
-            status_row.append(f"■ {s}")
+        s_clean = "".join(s.upper().split())
+        if s_clean == ret_stat_raw:
+            status_row.append(f"☑ {s}")
         else:
-            status_row.append(f"□ {s}")
+            status_row.append(f"☐ {s}")
     st2 = Table([status_row], colWidths=[36*mm]*5)
     st2.setStyle(TableStyle([
         ("BOX",      (0,0), (-1,-1), 0.5, colors.black),
@@ -893,8 +894,11 @@ def generate_return_docx(data):
     hG = doc.add_paragraph()
     hG.add_run("G. OVERALL RETURN STATUS").bold = True
     status_options = ["Fully Returned","Partially Returned","Outstanding","Damaged","Lost"]
-    ret_stat_raw = str(data.get("ret_status","FULLY RETURNED")).strip().upper()
-    status_line = "   ".join([f"[{'X' if s.upper()==ret_stat_raw else ' '}] {s}" for s in status_options])
+    ret_stat_raw = "".join(str(data.get("ret_status","FULLY RETURNED")).strip().upper().split())
+    status_line = "   ".join([
+        f"[X] {s}" if "".join(s.upper().split()) == ret_stat_raw else f"[ ] {s}"
+        for s in status_options
+    ])
     doc.add_paragraph(status_line)
 
     doc.add_paragraph()
